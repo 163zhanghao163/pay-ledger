@@ -93,8 +93,9 @@ class NotificationParserTest {
     }
 
     @Test fun dedup_window_boundaries() {
+        // of(1000) 的 ±3 秒窗口是 [-2000, 4000]，两端含边界
         val w = DedupWindow.of(1000L)
-        assertEquals(2000L, w.first)
+        assertEquals(-2000L, w.first)
         assertEquals(4000L, w.last)
         assertEquals(true, w.contains(-2000L))
         assertEquals(false, w.contains(-2001L))
