@@ -15,6 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,8 @@ import com.zhaoyingqi.payledger.notification.NotificationParser
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** 双通道状态行：通知监听连接状态 + 无障碍开关状态；未连接时提供重连。 */
@@ -88,12 +91,19 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
             }) { Text("清空") }
         }
         Text(
-            "记录所有 App 的通知，仅保存在内存：最多 30 条、保留最近 7 天，重启或点「清空」即清除，不占用存储空间。" +
-                "付款一笔后回到这里，找到对应通知发我校准规则。",
+            "说明：此页展示所有 App 的通知仅为校准解析规则；实际记账只解析微信/支付宝的付款通知。" +
+                "无障碍通道在系统层只监听微信/支付宝两个应用。数据仅存内存（最多 30 条、保留 7 天），不占存储。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
+        // 状态行每 3 秒自动刷新（重连后需要片刻才生效）
+        LaunchedEffect(Unit) {
+            while (isActive) {
+                delay(3_000)
+                refreshTick += 1
+            }
+        }
         ChannelStatusRow(
             listenerConnected = listenerConnected,
             accessibilityEnabled = accessibilityEnabled,
@@ -104,7 +114,11 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
                     )
                 } catch (_: Exception) {
                 }
-                refreshTick += 1
+                // 重连生效需要片刻，2 秒后复查状态
+                scope.launch {
+                    delay(2_000)
+                    refreshTick += 1
+                }
             },
         )
         Spacer(Modifier.height(8.dp))
@@ -132,7 +146,8 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
         if (items.isEmpty()) {
             Spacer(Modifier.height(24.dp))
             Text(
-                if (listenerConnected) "监听已连接但暂未收到新通知。" else "监听未连接——点上方「重连」，或到系统设置把「通知使用权」关掉再开一次，或重启手机。",
+                if (listenerConnected) "监听已连接但暂未收到新通知。" else
+                    "监听未连接——「授权」只是允许，系统还得把服务拉起来。请依次尝试：点「重连」→ 到系统设置把「通知使用权」关闭再开启 → 重启手机（升级安装或一键清理后台后，部分手机不会自动重绑，重启是唯一可靠恢复方式）。重启后先打开一次 PayLedger 再付款。",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp),
             )

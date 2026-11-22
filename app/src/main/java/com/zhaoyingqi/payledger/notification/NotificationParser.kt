@@ -13,8 +13,13 @@ data class ParsedPayment(
 /** 纯函数式解析器：无 Android 依赖，便于 JVM 单测。 */
 object NotificationParser {
 
-    /** 非付款或解析失败返回 null（宁可漏记不可错记）。 */
-    fun parse(packageName: String, title: String?, text: String?): ParsedPayment? {
+    /** 非付款或解析失败返回 null（宁可漏记不可错记）。无障碍通道传入 [payKeywords] = A11Y_PAY_KEYWORDS。 */
+    fun parse(
+        packageName: String,
+        title: String?,
+        text: String?,
+        payKeywords: List<String> = ParserRules.PAY_KEYWORDS,
+    ): ParsedPayment? {
         val t = title?.trim().orEmpty()
         val body = text?.trim().orEmpty()
         if (t.isEmpty() && body.isEmpty()) return null
@@ -22,7 +27,7 @@ object NotificationParser {
         val channel = resolveChannel(packageName) ?: return null
         val haystack = "$t $body"
         if (ParserRules.IGNORE_KEYWORDS.any { haystack.contains(it) }) return null
-        if (!ParserRules.PAY_KEYWORDS.any { haystack.contains(it) }) return null
+        if (!payKeywords.any { haystack.contains(it) }) return null
         val amountCents = extractAmountCents(haystack) ?: return null
         val counterparty = extractMerchant(channel, haystack).orEmpty()
         return ParsedPayment(channel, amountCents, counterparty, haystack.take(ParserRules.MAX_SUMMARY_LEN))

@@ -127,11 +127,50 @@ class NotificationParserTest {
     }
 
     @Test fun dedup_window_boundaries() {
-        // of(1000) 的 ±3 秒窗口是 [-2000, 4000]，两端含边界
+        // of(1000) 的 ±10 秒窗口是 [-9000, 11000]，两端含边界（放宽为 10s：通知与无障碍双通道捕获有时间差）
         val w = DedupWindow.of(1000L)
-        assertEquals(-2000L, w.first)
-        assertEquals(4000L, w.last)
-        assertEquals(true, w.contains(-2000L))
-        assertEquals(false, w.contains(-2001L))
+        assertEquals(-9000L, w.first)
+        assertEquals(11000L, w.last)
+        assertEquals(true, w.contains(-9000L))
+        assertEquals(false, w.contains(-9001L))
+    }
+
+    // —— 真机实测格式与误判防护 ——
+    @Test fun wechat_real_lockscreen_format() {
+        // 锁屏通知真实格式：标题「微信支付」正文「已支付¥11.00」
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "已支付¥11.00")
+        assertEquals(1100L, r?.amountCents)
+        assertEquals(Channel.WECHAT, r?.channel)
+    }
+
+    @Test fun pending_payment_not_recorded() {
+        assertNull(NotificationParser.parse("com.eg.android.AlipayGphone", "交易提醒", "你有一笔待支付订单，金额¥30.00，请及时支付。"))
+    }
+
+    // —— 无障碍通道：严格关键词（按钮/订单列表静态内容不误判） ——
+    @Test fun a11y_pay_button_not_recorded() {
+        // 页面上「微信支付」按钮 + 任意金额：无「成功/扣款」语义，不记账
+        assertNull(
+            NotificationParser.parse(
+                "com.tencent.mm", null, "选择支付方式 微信支付 ¥30.00", ParserRules.A11Y_PAY_KEYWORDS,
+            ),
+        )
+    }
+
+    @Test fun a11y_order_list_history_status_not_recorded() {
+        // 订单列表里的历史状态「已支付」不是本次付款
+        assertNull(
+            NotificationParser.parse(
+                "com.eg.android.AlipayGphone", null, "订单列表 待支付 ¥30.00 已支付 ¥11.00", ParserRules.A11Y_PAY_KEYWORDS,
+            ),
+        )
+    }
+
+    @Test fun a11y_success_page_recorded() {
+        val r = NotificationParser.parse(
+            "com.tencent.mm", null, "支付成功 ¥11.00 微信支付", ParserRules.A11Y_PAY_KEYWORDS,
+        )
+        assertEquals(1100L, r?.amountCents)
+        assertEquals(Channel.WECHAT, r?.channel)
     }
 }

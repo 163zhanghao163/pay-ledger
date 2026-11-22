@@ -35,11 +35,11 @@ class PaymentAccessibilityService : AccessibilityService() {
         val texts = LinkedHashSet<String>()
         event.text?.forEach { t -> t?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { texts.add(it) } }
 
-        var parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"))
+        var parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"), ParserRules.A11Y_PAY_KEYWORDS)
         if (parsed == null) {
             // 事件自带文本没有金额时，读取窗口内容兜底（支付成功页的金额常在子节点里）
             collectWindowTexts(texts)
-            parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"))
+            parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"), ParserRules.A11Y_PAY_KEYWORDS)
         }
         val combined = texts.joinToString("\n")
         if (combined.isEmpty()) return
