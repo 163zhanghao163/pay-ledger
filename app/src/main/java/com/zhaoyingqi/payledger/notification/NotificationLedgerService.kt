@@ -26,7 +26,9 @@ class NotificationLedgerService : NotificationListenerService() {
 
         val extras = sbn.notification?.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        // EXTRA_TEXT 为空时回退到大文本视图（部分通知把正文放在 EXTRA_BIG_TEXT）
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }
+            ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
         app.recentNotifications.push(RawNotification(pkg, title.orEmpty(), text.orEmpty(), sbn.postTime))
 
         val parsed = NotificationParser.parse(pkg, title, text)

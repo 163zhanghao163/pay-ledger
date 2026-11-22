@@ -37,5 +37,12 @@ fun AuthorizationScreen() {
         }) {
             Text("去开启通知使用权")
         }
+        Spacer(Modifier.height(24.dp))
+        Text(
+            "记账在后台自动完成，无需保持应用打开。\n" +
+                "若长期未自动记录：请在系统设置中允许本应用「自启动」并关闭电池优化（部分国产 ROM 需要）。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

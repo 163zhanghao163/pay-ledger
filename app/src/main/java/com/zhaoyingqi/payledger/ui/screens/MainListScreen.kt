@@ -41,6 +41,7 @@ import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.data.TransactionRecord
 import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
 import com.zhaoyingqi.payledger.ui.formatCents
+import java.time.YearMonth
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -50,6 +51,8 @@ fun MainListScreen() {
     val groups by vm.groups.collectAsStateWithLifecycle()
     val todayCents by vm.todayCents.collectAsStateWithLifecycle()
     val monthCents by vm.monthCents.collectAsStateWithLifecycle()
+    val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
+    val atLatestMonth by vm.atLatestMonth.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<TransactionRecord?>(null) }
     var deleting by remember { mutableStateOf<TransactionRecord?>(null) }
     var showDebug by remember { mutableStateOf(false) }
@@ -61,10 +64,18 @@ fun MainListScreen() {
 
     Scaffold { padding ->
         Column(Modifier.padding(padding)) {
-            SummaryCard(todayCents, monthCents, onLongClick = { showDebug = true })
+            SummaryCard(
+                todayCents = todayCents,
+                monthCents = monthCents,
+                month = selectedMonth,
+                atLatest = atLatestMonth,
+                onPrev = vm::prevMonth,
+                onNext = vm::nextMonth,
+                onLongClick = { showDebug = true },
+            )
             if (groups.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无记录，去支付一笔试试", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("本月暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
@@ -114,26 +125,40 @@ fun MainListScreen() {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SummaryCard(todayCents: Long, monthCents: Long, onLongClick: () -> Unit) {
+private fun SummaryCard(
+    todayCents: Long,
+    monthCents: Long,
+    month: YearMonth,
+    atLatest: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().padding(16.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.primaryContainer)
             .combinedClickable(onClick = {}, onLongClick = onLongClick)
-            .padding(20.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+            .padding(horizontal = 8.dp, vertical = 18.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        SummaryItem("今日支出", todayCents)
-        SummaryItem("本月支出", monthCents)
-    }
-}
-
-@Composable
-private fun SummaryItem(label: String, cents: Long) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(formatCents(cents), style = MaterialTheme.typography.titleLarge)
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("今日支出", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(formatCents(todayCents), style = MaterialTheme.typography.titleLarge)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onPrev) { Text("‹", style = MaterialTheme.typography.titleLarge) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("${month.year}年${month.monthValue}月", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(formatCents(monthCents), style = MaterialTheme.typography.titleLarge)
+            }
+            TextButton(onClick = onNext, enabled = !atLatest) {
+                Text("›", style = MaterialTheme.typography.titleLarge)
+            }
+        }
     }
 }
 

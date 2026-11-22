@@ -10,9 +10,9 @@ interface TransactionDao {
     @Insert
     suspend fun insert(record: TransactionRecord): Long
 
-    /** 列表 LIMIT 500：数据量小，MVP 不做分页（规格 §7）。 */
-    @Query("SELECT * FROM transactions ORDER BY occurredAt DESC LIMIT 500")
-    fun observeAll(): Flow<List<TransactionRecord>>
+    /** 按月查询列表（历史月份可回看），LIMIT 500：单月数据量小，MVP 不做分页。 */
+    @Query("SELECT * FROM transactions WHERE occurredAt >= :startInclusive AND occurredAt < :endExclusive ORDER BY occurredAt DESC LIMIT 500")
+    fun observeBetween(startInclusive: Long, endExclusive: Long): Flow<List<TransactionRecord>>
 
     /** 今日/本月汇总：按 [startInclusive, endExclusive) 区间求和。 */
     @Query("SELECT COALESCE(SUM(amountCents), 0) FROM transactions WHERE occurredAt >= :startInclusive AND occurredAt < :endExclusive")
