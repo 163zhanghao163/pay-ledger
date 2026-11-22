@@ -19,7 +19,7 @@ object NotificationParser {
         val body = text?.trim().orEmpty()
         if (t.isEmpty() && body.isEmpty()) return null
 
-        val channel = resolveChannel(packageName, t) ?: return null
+        val channel = resolveChannel(packageName) ?: return null
         val haystack = "$t $body"
         if (ParserRules.IGNORE_KEYWORDS.any { haystack.contains(it) }) return null
         if (!ParserRules.PAY_KEYWORDS.any { haystack.contains(it) }) return null
@@ -28,9 +28,10 @@ object NotificationParser {
         return ParsedPayment(channel, amountCents, counterparty, haystack.take(ParserRules.MAX_SUMMARY_LEN))
     }
 
-    private fun resolveChannel(packageName: String, title: String): Channel? = when (packageName) {
-        ParserRules.PACKAGE_WECHAT -> if (title.contains(ParserRules.WECHAT_TITLE_FLAG)) Channel.WECHAT else null
-        ParserRules.PACKAGE_ALIPAY -> if (title.contains(ParserRules.ALIPAY_TITLE_FLAG)) Channel.ALIPAY else null
+    /** 渠道只按包名判定：通知标题因版本/渠道而异（微信凭证通知标题常为「微信」），不作硬性门槛。 */
+    private fun resolveChannel(packageName: String): Channel? = when (packageName) {
+        ParserRules.PACKAGE_WECHAT -> Channel.WECHAT
+        ParserRules.PACKAGE_ALIPAY -> Channel.ALIPAY
         else -> null
     }
 

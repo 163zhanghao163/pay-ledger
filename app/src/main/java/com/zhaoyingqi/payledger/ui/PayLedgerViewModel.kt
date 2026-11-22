@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.zhaoyingqi.payledger.data.MonthSum
 import com.zhaoyingqi.payledger.data.TransactionDao
 import com.zhaoyingqi.payledger.data.TransactionRecord
+
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -90,7 +91,24 @@ class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
         if (_statsYear.value < latestYear) _statsYear.value += 1
     }
 
-    fun updateNote(id: Long, note: String) = viewModelScope.launch { dao.updateNote(id, note) }
+    /** 手动补记一笔：时间取当前时刻，渠道三选（微信/支付宝/手动）。 */
+    fun addManual(amountCents: Long, channel: String, note: String) = viewModelScope.launch {
+        val now = System.currentTimeMillis()
+        dao.insert(
+            TransactionRecord(
+                amountCents = amountCents,
+                channel = channel,
+                counterparty = "",
+                occurredAt = now,
+                summary = "手动记账",
+                note = note,
+                createdAt = now,
+            ),
+        )
+    }
+
+    fun updateRecord(id: Long, amountCents: Long, note: String) =
+        viewModelScope.launch { dao.update(id, amountCents, note) }
 
     fun delete(id: Long) = viewModelScope.launch { dao.delete(id) }
 

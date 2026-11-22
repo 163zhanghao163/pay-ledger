@@ -1,9 +1,7 @@
 package com.zhaoyingqi.payledger.ui.screens
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,8 +15,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -32,17 +35,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zhaoyingqi.payledger.data.TransactionRecord
 import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
 import com.zhaoyingqi.payledger.ui.formatCents
+import com.zhaoyingqi.payledger.ui.parseAmountToCents
 import java.time.YearMonth
 
-/** 明细页：今日/当月支出卡 + 月份选择 + 按日分组记录列表。 */
-@OptIn(ExperimentalFoundationApi::class)
+/** 明细页：今日/当月支出卡 + 月份选择 + 按日分组记录列表 + FAB 手动记账。 */
 @Composable
 fun RecordsScreen(vm: PayLedgerViewModel) {
     val groups by vm.groups.collectAsStateWithLifecycle()
@@ -53,40 +59,45 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     var editing by remember { mutableStateOf<TransactionRecord?>(null) }
     var deleting by remember { mutableStateOf<TransactionRecord?>(null) }
     var showPicker by remember { mutableStateOf(false) }
+    var showAdd by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
-        SummaryCard(
-            todayCents = todayCents,
-            monthCents = monthCents,
-            month = selectedMonth,
-            atLatest = atLatestMonth,
-            onPrev = vm::prevMonth,
-            onNext = vm::nextMonth,
-            onOpenPicker = { showPicker = true },
-        )
-        if (groups.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("本月暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                groups.forEach { group ->
-                    item(key = "header-${group.date.toEpochDay()}") {
-                        Text(
-                            "${group.label}  支出 ${formatCents(group.totalCents)}",
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-                    items(group.records, key = { it.id }) { record ->
-                        RecordRow(
-                            record = record,
-                            onClick = { editing = record },
-                            onLongClick = { deleting = record },
-                        )
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            SummaryCard(
+                todayCents = todayCents,
+                monthCents = monthCents,
+                month = selectedMonth,
+                atLatest = atLatestMonth,
+                onPrev = vm::prevMonth,
+                onNext = vm::nextMonth,
+                onOpenPicker = { showPicker = true },
+            )
+            if (groups.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("本月暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize().padding(bottom = 96.dp)) {
+                    groups.forEach { group ->
+                        item(key = "header-${group.date.toEpochDay()}") {
+                            Text(
+                                "${group.label}  支出 ${formatCents(group.totalCents)}",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                        items(group.records, key = { it.id }) { record ->
+                            RecordRow(record = record, onClick = { editing = record })
+                        }
                     }
                 }
             }
+        }
+        FloatingActionButton(
+            onClick = { showAdd = true },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "手动记账")
         }
     }
 
@@ -101,12 +112,25 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
             onDismiss = { showPicker = false },
         )
     }
+    if (showAdd) {
+        ManualAddDialog(
+            onDismiss = { showAdd = false },
+            onSave = { cents, channel, note ->
+                vm.addManual(cents, channel, note)
+                showAdd = false
+            },
+        )
+    }
     editing?.let { record ->
-        NoteEditSheet(
+        EditRecordSheet(
             record = record,
             onDismiss = { editing = null },
-            onSave = { note ->
-                vm.updateNote(record.id, note)
+            onSave = { cents, note ->
+                vm.updateRecord(record.id, cents, note)
+                editing = null
+            },
+            onDelete = {
+                deleting = record
                 editing = null
             },
         )
@@ -124,7 +148,6 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SummaryCard(
     todayCents: Long,
@@ -220,23 +243,68 @@ private fun MonthPickerDialog(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** 手动记账弹窗：金额 + 渠道三选 + 备注。 */
 @Composable
-private fun RecordRow(record: TransactionRecord, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun ManualAddDialog(onDismiss: () -> Unit, onSave: (Long, String, String) -> Unit) {
+    var amount by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var channel by remember { mutableStateOf("MANUAL") }
+    val cents = parseAmountToCents(amount)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("手动记账") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it },
+                    label = { Text("金额（元）") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    isError = amount.isNotBlank() && cents == null,
+                    supportingText = if (amount.isNotBlank() && cents == null) {
+                        { Text("请输入有效金额，如 12.50") }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("WECHAT" to "微信", "ALIPAY" to "支付宝", "MANUAL" to "其他").forEach { (key, label) ->
+                        FilterChip(selected = channel == key, onClick = { channel = key }, label = { Text(label) })
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("备注（可选）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { cents?.let { onSave(it, channel, note.trim()) } }, enabled = cents != null) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun RecordRow(record: TransactionRecord, onClick: () -> Unit) {
     Column(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (record.channel == "WECHAT") "微信" else "支付宝",
+                channelLabel(record.channel),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                record.counterparty.ifEmpty { record.summary.take(20) },
+                record.counterparty.ifEmpty { if (record.note.isEmpty()) record.summary.take(20) else "备注见下" },
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -254,25 +322,55 @@ private fun RecordRow(record: TransactionRecord, onClick: () -> Unit, onLongClic
     }
 }
 
+private fun channelLabel(channel: String): String = when (channel) {
+    "WECHAT" -> "微信"
+    "ALIPAY" -> "支付宝"
+    else -> "其他"
+}
+
+/** 编辑记录：金额、备注可改，删除入口显式化。 */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteEditSheet(record: TransactionRecord, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var text by remember(record.id) { mutableStateOf(record.note) }
+private fun EditRecordSheet(
+    record: TransactionRecord,
+    onDismiss: () -> Unit,
+    onSave: (Long, String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var amount by remember(record.id) { mutableStateOf(formatCents(record.amountCents).removePrefix("¥")) }
+    var note by remember(record.id) { mutableStateOf(record.note) }
+    val cents = parseAmountToCents(amount)
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(16.dp)) {
-            Text("编辑备注", style = MaterialTheme.typography.titleMedium)
+            Text("编辑记录", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
+                value = amount,
+                onValueChange = { amount = it },
+                label = { Text("金额（元）") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                singleLine = true,
+                isError = amount.isNotBlank() && cents == null,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("这笔钱花在了哪？") },
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("备注") },
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onDismiss) { Text("取消") }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { onSave(text.trim()) }) { Text("保存") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("删除这条记录") }
+                Row {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { cents?.let { onSave(it, note.trim()) } }, enabled = cents != null) { Text("保存") }
+                }
             }
             Spacer(Modifier.height(24.dp))
         }

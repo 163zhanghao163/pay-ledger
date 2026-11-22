@@ -64,8 +64,17 @@ class NotificationParserTest {
         assertNull(NotificationParser.parse("com.eg.android.AlipayGphone", "支付宝通知", "转账到账 500.00元"))
     }
 
-    @Test fun alipay_title_missing_ignored() {
-        assertNull(NotificationParser.parse("com.eg.android.AlipayGphone", "通知", "付款成功 ¥20.00"))
+    // 渠道只按包名判定：通知标题不作硬性门槛（微信凭证通知标题常为「微信」）
+    @Test fun wechat_plain_title_parsed() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信", "微信支付凭证\n付款成功 ￥12.34")
+        assertEquals(1234L, r?.amountCents)
+        assertEquals(Channel.WECHAT, r?.channel)
+    }
+
+    @Test fun alipay_plain_title_parsed() {
+        val r = NotificationParser.parse("com.eg.android.AlipayGphone", "通知", "付款成功 ¥20.00")
+        assertEquals(2000L, r?.amountCents)
+        assertEquals(Channel.ALIPAY, r?.channel)
     }
 
     // —— 忽略：金额异常 / 无关输入 ——
