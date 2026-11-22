@@ -47,6 +47,31 @@ class NotificationParserTest {
         assertEquals(12800L, r?.amountCents)
     }
 
+    // 真机截图实测格式：标题「交易提醒」+「你有一笔10.00元的支出，点击领取10个支付宝积分。」
+    @Test fun alipay_transaction_reminder() {
+        val r = NotificationParser.parse(
+            "com.eg.android.AlipayGphone",
+            "交易提醒",
+            "你有一笔10.00元的支出，点击领取10个支付宝积分。",
+        )
+        assertEquals(1000L, r?.amountCents)
+        assertEquals(Channel.ALIPAY, r?.channel)
+    }
+
+    @Test fun alipay_income_reminder_not_recorded() {
+        assertNull(NotificationParser.parse("com.eg.android.AlipayGphone", "交易提醒", "你有一笔100.00元的收入，已到账。"))
+    }
+
+    @Test fun sub_yuan_amount() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥0.50")
+        assertEquals(50L, r?.amountCents)
+    }
+
+    @Test fun sub_yuan_suffix_amount() {
+        val r = NotificationParser.parse("com.eg.android.AlipayGphone", "交易提醒", "你有一笔0.99元的支出。")
+        assertEquals(99L, r?.amountCents)
+    }
+
     // —— 忽略：收款 / 非付款 ——
     @Test fun wechat_income_ignored() {
         assertNull(NotificationParser.parse("com.tencent.mm", "微信支付", "收款到账12.00元"))
