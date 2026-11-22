@@ -79,7 +79,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
         if (items.isEmpty()) {
             Spacer(Modifier.height(24.dp))
             Text(
-                "暂未收到通知——通知监听未生效或还没有新通知。",
+                "暂未收到通知——通知监听可能未生效（升级安装后请在系统设置把「通知使用权」关掉再开一次），或还没有新通知。",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp),
             )
@@ -87,6 +87,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize()) {
             items(items.size) { i ->
                 val n = items[i]
+                val noAmount = !n.text.contains('¥') && !n.text.contains('￥') && !n.text.contains("元")
                 Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
@@ -101,6 +102,14 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
                             maxLines = 8,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (n.packageName == "com.tencent.mm" && noAmount) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "⚠ 该通知不含金额。若是付款通知：微信 → 我 → 设置 → 新消息通知 → 打开「通知显示消息详情」后重试。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                 }
             }
