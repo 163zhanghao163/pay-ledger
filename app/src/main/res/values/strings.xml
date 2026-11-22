@@ -1,1 +1,5 @@
-<resources><string name="app_name">PayLedger</string></resources>
+<resources>
+    <string name="app_name">PayLedger</string>
+    <string name="accessibility_label">PayLedger 记账兜底</string>
+    <string name="accessibility_desc">只在收到微信/支付宝的界面变化时读取其支付成功页面的金额，用于通知未弹出时补记。不读取其他应用内容，不上传任何数据。</string>
+</resources>

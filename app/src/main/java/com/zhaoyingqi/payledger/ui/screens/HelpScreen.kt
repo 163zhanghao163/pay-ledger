@@ -16,6 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +70,36 @@ fun HelpScreen(onBack: () -> Unit) {
                 body = "系统设置中允许 PayLedger「自启动」并关闭电池优化（部分国产 ROM 需要）。",
             )
         }
+        item {
+            val context = LocalContext.current
+            var accEnabled by remember { mutableStateOf(checkAccessibility(context)) }
+            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) accEnabled = checkAccessibility(context)
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
+            Column {
+                Step(
+                    title = "第 5 步（推荐）：开启「无障碍」兜底",
+                    body = "付款时若微信/支付宝正好在前台，系统可能不发通知栏通知，通知监听就会漏记。" +
+                        "开启 PayLedger 的无障碍服务后，可从支付成功页面读取金额补记。" +
+                        "只监听微信/支付宝两个应用、耗电极小、不上传数据。",
+                )
+                Text(
+                    if (accEnabled) "当前状态：已开启 ✓" else "当前状态：未开启",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (accEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Button(
+                    onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) { Text("去开启无障碍") }
+            }
+        }
         item { HorizontalDivider() }
         item {
             Step(
@@ -85,4 +119,10 @@ private fun Step(title: String, body: String) {
         Spacer(Modifier.height(4.dp))
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** 检测本应用的无障碍服务是否已开启（返回到本页时经 ON_RESUME 刷新）。 */
+private fun checkAccessibility(context: android.content.Context): Boolean {
+    val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+    return enabled?.contains(context.packageName) == true
 }

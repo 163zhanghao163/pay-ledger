@@ -47,9 +47,14 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
             Text("最近通知（调试）", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { refreshTick += 1 }) { Text("刷新") }
+            TextButton(onClick = {
+                app.recentNotifications.clear()
+                refreshTick += 1
+            }) { Text("清空") }
         }
         Text(
-            "记录所有 App 的通知。付款一笔后回到这里，找到对应通知发我校准规则。",
+            "记录所有 App 的通知，仅保存在内存：最多 30 条、保留最近 7 天，重启或点「清空」即清除，不占用存储空间。" +
+                "付款一笔后回到这里，找到对应通知发我校准规则。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -91,7 +96,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
                 Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
-                            "${n.packageName}  ${timeFmt.format(Date(n.postedAt))}",
+                            "${n.packageName}${if (n.source != "通知") "  [${n.source}]" else ""}  ${timeFmt.format(Date(n.postedAt))}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
