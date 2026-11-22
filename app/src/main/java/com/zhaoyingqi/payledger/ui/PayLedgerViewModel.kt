@@ -2,6 +2,7 @@ package com.zhaoyingqi.payledger.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zhaoyingqi.payledger.data.MonthSum
 import com.zhaoyingqi.payledger.data.TransactionDao
 import com.zhaoyingqi.payledger.data.TransactionRecord
 import java.time.Instant
@@ -32,12 +33,13 @@ class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
     private val zone = ZoneId.systemDefault()
     private val dayFmt = DateTimeFormatter.ofPattern("MM月dd日")
 
-    private val _selectedMonth = MutableStateFlow(YearMonth.from(LocalDate.now(zone)))
+    // —— 明细页 ——
+    private val _selectedMonth = MutableStateFlow(currentMonth())
     val selectedMonth: StateFlow<YearMonth> = _selectedMonth.asStateFlow()
 
-    /** 是否已停留在最新月份（用于禁用「下一月」按钮）。 */
+    /** 是否已停留在最新月份（用于禁用「下一月」）。 */
     val atLatestMonth: StateFlow<Boolean> = _selectedMonth
-        .map { !it.isBefore(YearMonth.from(LocalDate.now(zone))) }
+        .map { !it.isBefore(currentMonth()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     val groups: StateFlow<List<DayGroup>> = _selectedMonth
@@ -53,14 +55,39 @@ class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
         .flatMapLatest { ym -> dao.observeSumBetween(monthStart(ym), monthEnd(ym)) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
+    // —— 统计页 ——
+    private val _statsYear = MutableStateFlow(currentMonth().year)
+    val statsYear: StateFlow<Int> = _statsYear.asStateFlow()
+
+    val monthlySums: StateFlow<List<MonthSum>> = _statsYear
+        .flatMapLatest { y -> dao.observeMonthlySums(yearStart(y), yearEnd(y)) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val latestMonth: YearMonth get() = currentMonth()
+    val latestYear: Int get() = currentMonth().year
+
     fun prevMonth() {
         _selectedMonth.value = _selectedMonth.value.minusMonths(1)
     }
 
     fun nextMonth() {
-        if (_selectedMonth.value.isBefore(YearMonth.from(LocalDate.now(zone)))) {
+        if (_selectedMonth.value.isBefore(currentMonth())) {
             _selectedMonth.value = _selectedMonth.value.plusMonths(1)
         }
+    }
+
+    /** 从统计页跳转/月份选择弹窗：同时选中月份并同步统计年份。 */
+    fun pickMonth(ym: YearMonth) {
+        _selectedMonth.value = ym
+        _statsYear.value = ym.year
+    }
+
+    fun prevYear() {
+        _statsYear.value -= 1
+    }
+
+    fun nextYear() {
+        if (_statsYear.value < latestYear) _statsYear.value += 1
     }
 
     fun updateNote(id: Long, note: String) = viewModelScope.launch { dao.updateNote(id, note) }
@@ -72,8 +99,11 @@ class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
             .map { (date, list) -> DayGroup(date, date.format(dayFmt), list, list.sumOf { it.amountCents }) }
             .sortedByDescending { it.date }
 
+    private fun currentMonth(): YearMonth = YearMonth.from(LocalDate.now(zone))
     private fun monthStart(ym: YearMonth): Long = ym.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
     private fun monthEnd(ym: YearMonth): Long = ym.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    private fun yearStart(y: Int): Long = LocalDate.of(y, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+    private fun yearEnd(y: Int): Long = LocalDate.of(y + 1, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
     private fun startOfToday(): Long = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
     private fun startOfTomorrow(): Long = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 }

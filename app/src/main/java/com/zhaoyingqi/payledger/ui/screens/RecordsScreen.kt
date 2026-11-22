@@ -2,6 +2,7 @@ package com.zhaoyingqi.payledger.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +22,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,22 +32,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.data.TransactionRecord
 import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
 import com.zhaoyingqi.payledger.ui.formatCents
 import java.time.YearMonth
 
+/** 明细页：今日/当月支出卡 + 月份选择 + 按日分组记录列表。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MainListScreen() {
-    val app = LocalContext.current.applicationContext as PayLedgerApplication
-    val vm: PayLedgerViewModel = viewModel(initializer = { PayLedgerViewModel(app.dao) })
+fun RecordsScreen(vm: PayLedgerViewModel) {
     val groups by vm.groups.collectAsStateWithLifecycle()
     val todayCents by vm.todayCents.collectAsStateWithLifecycle()
     val monthCents by vm.monthCents.collectAsStateWithLifecycle()
@@ -55,51 +52,55 @@ fun MainListScreen() {
     val atLatestMonth by vm.atLatestMonth.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<TransactionRecord?>(null) }
     var deleting by remember { mutableStateOf<TransactionRecord?>(null) }
-    var showDebug by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
 
-    if (showDebug) {
-        DebugPreviewScreen(onBack = { showDebug = false })
-        return
-    }
-
-    Scaffold { padding ->
-        Column(Modifier.padding(padding)) {
-            SummaryCard(
-                todayCents = todayCents,
-                monthCents = monthCents,
-                month = selectedMonth,
-                atLatest = atLatestMonth,
-                onPrev = vm::prevMonth,
-                onNext = vm::nextMonth,
-                onLongClick = { showDebug = true },
-            )
-            if (groups.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("本月暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    groups.forEach { group ->
-                        item(key = "header-${group.date.toEpochDay()}") {
-                            Text(
-                                "${group.label}  支出 ${formatCents(group.totalCents)}",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                        }
-                        items(group.records, key = { it.id }) { record ->
-                            RecordRow(
-                                record = record,
-                                onClick = { editing = record },
-                                onLongClick = { deleting = record },
-                            )
-                        }
+    Column(Modifier.fillMaxSize()) {
+        SummaryCard(
+            todayCents = todayCents,
+            monthCents = monthCents,
+            month = selectedMonth,
+            atLatest = atLatestMonth,
+            onPrev = vm::prevMonth,
+            onNext = vm::nextMonth,
+            onOpenPicker = { showPicker = true },
+        )
+        if (groups.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("本月暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
+                groups.forEach { group ->
+                    item(key = "header-${group.date.toEpochDay()}") {
+                        Text(
+                            "${group.label}  支出 ${formatCents(group.totalCents)}",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+                    items(group.records, key = { it.id }) { record ->
+                        RecordRow(
+                            record = record,
+                            onClick = { editing = record },
+                            onLongClick = { deleting = record },
+                        )
                     }
                 }
             }
         }
     }
 
+    if (showPicker) {
+        MonthPickerDialog(
+            current = selectedMonth,
+            latest = vm.latestMonth,
+            onPick = {
+                vm.pickMonth(it)
+                showPicker = false
+            },
+            onDismiss = { showPicker = false },
+        )
+    }
     editing?.let { record ->
         NoteEditSheet(
             record = record,
@@ -132,34 +133,91 @@ private fun SummaryCard(
     atLatest: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
-    onLongClick: () -> Unit,
+    onOpenPicker: () -> Unit,
 ) {
-    Row(
+    Column(
         Modifier.fillMaxWidth().padding(16.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.primaryContainer)
-            .combinedClickable(onClick = {}, onLongClick = onLongClick)
-            .padding(horizontal = 8.dp, vertical = 18.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = 14.dp),
     ) {
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("今日支出", style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(formatCents(todayCents), style = MaterialTheme.typography.titleLarge)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onPrev) { Text("‹", style = MaterialTheme.typography.titleLarge) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${month.year}年${month.monthValue}月", style = MaterialTheme.typography.labelMedium)
+                Text("今日支出", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(formatCents(todayCents), style = MaterialTheme.typography.titleLarge)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("${month.monthValue}月支出", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(formatCents(monthCents), style = MaterialTheme.typography.titleLarge)
             }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onPrev) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            Text(
+                "${month.year}年${month.monthValue}月 ▾",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f).clickable(onClick = onOpenPicker).padding(vertical = 8.dp),
+            )
             TextButton(onClick = onNext, enabled = !atLatest) {
-                Text("›", style = MaterialTheme.typography.titleLarge)
+                Text("›", style = MaterialTheme.typography.headlineSmall)
             }
         }
     }
+}
+
+/** 月份选择弹窗：年份切换 + 12 宫格。 */
+@Composable
+private fun MonthPickerDialog(
+    current: YearMonth,
+    latest: YearMonth,
+    onPick: (YearMonth) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var viewYear by remember(current) { mutableStateOf(current.year) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择月份") },
+        text = {
+            Column {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { viewYear -= 1 }) { Text("‹") }
+                    Text(
+                        "${viewYear}年",
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { viewYear += 1 }, enabled = viewYear < latest.year) { Text("›") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    (1..12).chunked(4).forEach { rowMonths ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            rowMonths.forEach { m ->
+                                val ym = YearMonth.of(viewYear, m)
+                                val selected = ym == current
+                                TextButton(
+                                    onClick = { onPick(ym) },
+                                    enabled = !ym.isAfter(latest),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        "${m}月",
+                                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

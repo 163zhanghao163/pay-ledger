@@ -5,6 +5,9 @@ import androidx.room.Insert
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+/** 统计页用的月度合计行。 */
+data class MonthSum(val month: Int, val totalCents: Long)
+
 @Dao
 interface TransactionDao {
     @Insert
@@ -21,6 +24,10 @@ interface TransactionDao {
     /** 防重复：同渠道同金额、时间窗内已有记录返回其 id。 */
     @Query("SELECT id FROM transactions WHERE channel = :channel AND amountCents = :amountCents AND occurredAt BETWEEN :from AND :to LIMIT 1")
     suspend fun findDuplicate(channel: String, amountCents: Long, from: Long, to: Long): Long?
+
+    /** 某年各月支出合计（统计页柱状图）。 */
+    @Query("SELECT CAST(strftime('%m', occurredAt/1000, 'unixepoch', 'localtime') AS INTEGER) AS month, SUM(amountCents) AS totalCents FROM transactions WHERE occurredAt >= :startInclusive AND occurredAt < :endExclusive GROUP BY month ORDER BY month")
+    fun observeMonthlySums(startInclusive: Long, endExclusive: Long): Flow<List<MonthSum>>
 
     @Query("UPDATE transactions SET note = :note WHERE id = :id")
     suspend fun updateNote(id: Long, note: String)
