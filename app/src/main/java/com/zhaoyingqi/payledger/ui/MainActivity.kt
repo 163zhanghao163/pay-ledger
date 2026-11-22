@@ -1,6 +1,8 @@
 package com.zhaoyingqi.payledger.ui
 
+import android.content.ComponentName
 import android.os.Bundle
+import android.service.notification.NotificationListenerService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -39,6 +41,7 @@ import com.zhaoyingqi.payledger.ui.screens.DebugPreviewScreen
 import com.zhaoyingqi.payledger.ui.screens.HelpScreen
 import com.zhaoyingqi.payledger.ui.screens.RecordsScreen
 import com.zhaoyingqi.payledger.ui.screens.StatsScreen
+import com.zhaoyingqi.payledger.notification.NotificationLedgerService
 import com.zhaoyingqi.payledger.ui.theme.PayLedgerTheme
 
 class MainActivity : ComponentActivity() {
@@ -53,9 +56,12 @@ class MainActivity : ComponentActivity() {
                 if (listenerEnabled) MainShell() else AuthorizationScreen()
             }
         }
-        // 从系统设置返回后重新检测授权状态
+        // 从系统设置返回后重新检测授权状态；有授权但监听未连接时（升级安装后系统不重绑）自动请求重连
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) listenerEnabled = isListenerEnabled()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                listenerEnabled = isListenerEnabled()
+                ensureListenerConnected()
+            }
         })
     }
 
@@ -112,4 +118,20 @@ class MainActivity : ComponentActivity() {
 
     private fun isListenerEnabled(): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+
+    /** 有通知使用权但服务未连接（升级安装后系统未重绑、省电杀服务等）时主动请求重连，10 秒节流。 */
+    private fun ensureListenerConnected() {
+        if (!listenerEnabled || NotificationLedgerService.connected) return
+        val now = System.currentTimeMillis()
+        if (now - lastRebindAt < REBIND_THROTTLE_MS) return
+        lastRebindAt = now
+        try {
+            NotificationListenerService.requestRebind(ComponentName(this, NotificationLedgerService::class.java))
+        } catch (_: Exception) {
+        }
+    }
+
+    private var lastRebindAt = 0L
+
+    companion object { private const val REBIND_THROTTLE_MS = 10_000L }
 }

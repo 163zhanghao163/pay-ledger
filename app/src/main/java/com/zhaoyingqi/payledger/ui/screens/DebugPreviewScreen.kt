@@ -25,21 +25,56 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.content.ComponentName
+import android.service.notification.NotificationListenerService
 import com.zhaoyingqi.payledger.PayLedgerApplication
+import com.zhaoyingqi.payledger.notification.NotificationLedgerService
 import com.zhaoyingqi.payledger.notification.NotificationParser
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
 
+/** 双通道状态行：通知监听连接状态 + 无障碍开关状态；未连接时提供重连。 */
+@Composable
+private fun ChannelStatusRow(
+    listenerConnected: Boolean,
+    accessibilityEnabled: Boolean,
+    onRebind: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (listenerConnected) "通知监听：已连接 ✓" else "通知监听：未连接 ✗",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (listenerConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        )
+        Spacer(Modifier.padding(4.dp))
+        Text(
+            if (accessibilityEnabled) "无障碍：已开启 ✓" else "无障碍：未开启（可选）",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (accessibilityEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!listenerConnected) {
+            Spacer(Modifier.weight(1f))
+            Button(onClick = onRebind) { Text("重连") }
+        }
+    }
+}
+
 /** 仅 debug 构建可达（顶栏「调试」进入）：查看最近收到的全部通知 + 模拟付款注入。 */
 @Composable
 fun DebugPreviewScreen(onBack: () -> Unit) {
-    val app = LocalContext.current.applicationContext as PayLedgerApplication
+    val context = LocalContext.current
+    val app = context.applicationContext as PayLedgerApplication
     var refreshTick by remember { mutableIntStateOf(0) }
     val items = remember(refreshTick) { app.recentNotifications.snapshot() }
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
+    val listenerConnected = remember(refreshTick) { NotificationLedgerService.connected }
+    val accessibilityEnabled = remember(refreshTick) { checkAccessibility(context) }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -58,6 +93,19 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        ChannelStatusRow(
+            listenerConnected = listenerConnected,
+            accessibilityEnabled = accessibilityEnabled,
+            onRebind = {
+                try {
+                    NotificationListenerService.requestRebind(
+                        ComponentName(context, NotificationLedgerService::class.java),
+                    )
+                } catch (_: Exception) {
+                }
+                refreshTick += 1
+            },
         )
         Spacer(Modifier.height(8.dp))
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -84,7 +132,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
         if (items.isEmpty()) {
             Spacer(Modifier.height(24.dp))
             Text(
-                "暂未收到通知——通知监听可能未生效（升级安装后请在系统设置把「通知使用权」关掉再开一次），或还没有新通知。",
+                if (listenerConnected) "监听已连接但暂未收到新通知。" else "监听未连接——点上方「重连」，或到系统设置把「通知使用权」关掉再开一次，或重启手机。",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp),
             )

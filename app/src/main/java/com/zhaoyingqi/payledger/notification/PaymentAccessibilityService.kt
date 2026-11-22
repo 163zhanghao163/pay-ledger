@@ -79,7 +79,18 @@ class PaymentAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
+    override fun onServiceConnected() {
+        connected = true
+        super.onServiceConnected()
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        connected = false
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
+        connected = false
         scope.cancel()
         super.onDestroy()
     }
@@ -89,5 +100,10 @@ class PaymentAccessibilityService : AccessibilityService() {
         private const val THROTTLE_MS = 800L
         private const val MAX_DEPTH = 6
         private const val MAX_NODES = 120
+
+        /** 无障碍服务是否已连接，供 UI 显示状态。 */
+        @Volatile
+        var connected = false
+            private set
     }
 }

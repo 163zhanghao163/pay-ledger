@@ -121,8 +121,8 @@ private fun Step(title: String, body: String) {
     }
 }
 
-/** 检测本应用的无障碍服务是否已开启（返回到本页时经 ON_RESUME 刷新）。 */
-private fun checkAccessibility(context: android.content.Context): Boolean {
+/** 检测本应用的无障碍服务是否已开启（帮助页经 ON_RESUME 刷新，调试页随「刷新」重读）。 */
+internal fun checkAccessibility(context: android.content.Context): Boolean {
     val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
     return enabled?.contains(context.packageName) == true
 }

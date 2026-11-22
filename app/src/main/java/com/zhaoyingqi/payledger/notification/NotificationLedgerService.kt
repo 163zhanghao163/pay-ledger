@@ -1,6 +1,7 @@
 package com.zhaoyingqi.payledger.notification
 
 import android.app.Notification
+import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -81,7 +82,23 @@ class NotificationLedgerService : NotificationListenerService() {
         }
     }
 
+    override fun onListenerConnected() {
+        connected = true
+        super.onListenerConnected()
+    }
+
+    override fun onListenerDisconnected() {
+        connected = false
+        // 系统断开（升级安装/省电杀服务）后主动请求重连，避免静默失效
+        try {
+            requestRebind(ComponentName(this, this.javaClass))
+        } catch (_: Exception) {
+        }
+        super.onListenerDisconnected()
+    }
+
     override fun onDestroy() {
+        connected = false
         scope.cancel()
         super.onDestroy()
     }
@@ -89,5 +106,10 @@ class NotificationLedgerService : NotificationListenerService() {
     companion object {
         private const val TAG = "PayLedgerService"
         private const val MAX_REMOTE_TEXT_LEN = 500
+
+        /** 监听是否已连接（onListenerConnected ↔ 断开），供 UI 检测"有权限但没在工作"的状态。 */
+        @Volatile
+        var connected = false
+            private set
     }
 }
