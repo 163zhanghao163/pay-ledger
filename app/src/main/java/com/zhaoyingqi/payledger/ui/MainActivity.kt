@@ -36,6 +36,7 @@ import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.R
 import com.zhaoyingqi.payledger.ui.screens.AuthorizationScreen
 import com.zhaoyingqi.payledger.ui.screens.DebugPreviewScreen
+import com.zhaoyingqi.payledger.ui.screens.HelpScreen
 import com.zhaoyingqi.payledger.ui.screens.RecordsScreen
 import com.zhaoyingqi.payledger.ui.screens.StatsScreen
 import com.zhaoyingqi.payledger.ui.theme.PayLedgerTheme
@@ -64,9 +65,10 @@ class MainActivity : ComponentActivity() {
         val vm: PayLedgerViewModel = viewModel(initializer = { PayLedgerViewModel(app.dao) })
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var showDebug by rememberSaveable { mutableStateOf(false) }
+        var showHelp by rememberSaveable { mutableStateOf(false) }
 
         Scaffold(
-            topBar = { TopBar(onDebug = { showDebug = true }, debugVisible = BuildConfig.DEBUG) },
+            topBar = { TopBar(onDebug = { showDebug = true }, debugVisible = BuildConfig.DEBUG, onHelp = { showHelp = true }) },
             bottomBar = {
                 NavigationBar {
                     NavigationBarItem(
@@ -87,6 +89,7 @@ class MainActivity : ComponentActivity() {
             Box(Modifier.padding(padding)) {
                 when {
                     showDebug -> DebugPreviewScreen(onBack = { showDebug = false })
+                    showHelp -> HelpScreen(onBack = { showHelp = false })
                     tab == 0 -> RecordsScreen(vm)
                     else -> StatsScreen(vm, onJumpToList = { tab = 0 })
                 }
@@ -95,13 +98,14 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun TopBar(onDebug: () -> Unit, debugVisible: Boolean) {
+    private fun TopBar(onDebug: () -> Unit, debugVisible: Boolean, onHelp: () -> Unit) {
         Row(
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("PayLedger", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = onHelp) { Text("帮助") }
             if (debugVisible) TextButton(onClick = onDebug) { Text("调试") }
         }
     }
