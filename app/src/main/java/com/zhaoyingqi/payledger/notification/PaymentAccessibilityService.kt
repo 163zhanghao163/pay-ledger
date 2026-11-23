@@ -5,10 +5,6 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.zhaoyingqi.payledger.PayLedgerApplication
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -19,7 +15,6 @@ import kotlinx.coroutines.launch
 class PaymentAccessibilityService : AccessibilityService() {
 
     private val app by lazy { application as PayLedgerApplication }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lastHandledAt = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -48,7 +43,7 @@ class PaymentAccessibilityService : AccessibilityService() {
             app.recentNotifications.push(RawNotification(pkg, "", combined, now, "无障碍"))
         }
         parsed ?: return
-        scope.launch {
+        app.applicationScope.launch {
             try {
                 app.savePayment(parsed, now)
             } catch (e: Exception) {
@@ -81,6 +76,8 @@ class PaymentAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         connected = true
+        // 无障碍服务由系统常驻绑定，作为锚点帮通知监听在进程重启后重新连上。
+        ListenerHealth.ensureConnected(app, app.applicationScope)
         super.onServiceConnected()
     }
 
@@ -91,7 +88,6 @@ class PaymentAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         connected = false
-        scope.cancel()
         super.onDestroy()
     }
 

@@ -44,7 +44,7 @@ fun AuthorizationScreen() {
         Text(
             "记账在后台自动完成，无需保持应用打开。\n" +
                 "若长期未自动记录：请在系统设置中允许本应用「自启动」并关闭电池优化（部分国产 ROM 需要）；\n" +
-                "重新安装或升级本应用后，请到系统设置把「通知使用权」关闭再重新开启一次。",
+                "重新安装或升级本应用后，打开 App 会自动尝试重连；仍显示未连接时，请把「通知使用权」关闭再重新开启一次。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -119,11 +119,16 @@ class NotificationParserTest {
         assertNull(NotificationParser.parse("com.android.systemui", "通知", "付款成功 ¥20.00"))
     }
 
-    // —— 摘要与去重窗口 ——
-    @Test fun summary_truncated_to_200() {
-        val long = "付款成功 ¥20.00 " + "x".repeat(300)
-        val r = NotificationParser.parse("com.tencent.mm", "微信支付", long)
-        assertEquals(200, r?.summary?.length)
+    // —— 摘要（只存结构化信息，不落通知原文）与去重窗口 ——
+    @Test fun summary_contains_no_raw_notification_text() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥20.00 宁波银行(尾号1234)")
+        assertEquals("微信付款", r?.summary)
+        assertEquals(false, r?.summary?.contains("宁波银行"))
+    }
+
+    @Test fun summary_keeps_structured_counterparty() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥20.00 付款给 星巴克")
+        assertEquals("微信付款 · 星巴克", r?.summary)
     }
 
     @Test fun dedup_window_boundaries() {
@@ -172,5 +177,33 @@ class NotificationParserTest {
         )
         assertEquals(1100L, r?.amountCents)
         assertEquals(Channel.WECHAT, r?.channel)
+    }
+
+    // —— 金额歧义：优先实付金额，排除红包/优惠 ——
+    @Test fun amount_near_payment_keyword_wins() {
+        val r = NotificationParser.parse(
+            "com.tencent.mm", "微信支付", "订单金额 ¥99.00 优惠券 ¥10.00 付款成功 ¥30.00",
+        )
+        assertEquals(3000L, r?.amountCents)
+    }
+
+    @Test fun red_packet_amount_excluded() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥50.00，获得 ¥5.00 红包")
+        assertEquals(5000L, r?.amountCents)
+    }
+
+    @Test fun red_packet_deduction_uses_paid_amount() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥20.00 使用红包抵扣 ¥5.00")
+        assertEquals(2000L, r?.amountCents)
+    }
+
+    // —— 退款：纯退款不记账，付款文案附带退款说明仍记账 ——
+    @Test fun pure_refund_not_recorded() {
+        assertNull(NotificationParser.parse("com.tencent.mm", "微信支付", "退款成功 ¥20.00 已原路退回"))
+    }
+
+    @Test fun payment_with_refund_note_recorded() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥20.00，如不满意可申请退款")
+        assertEquals(2000L, r?.amountCents)
     }
 }

@@ -304,7 +304,9 @@ private fun RecordRow(record: TransactionRecord, onClick: () -> Unit) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                record.counterparty.ifEmpty { if (record.note.isEmpty()) record.summary.take(20) else "备注见下" },
+                record.counterparty.ifEmpty {
+                    if (record.note.isEmpty()) record.summary.take(20).ifBlank { "自动记账" } else "备注见下"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

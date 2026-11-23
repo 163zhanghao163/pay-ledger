@@ -13,8 +13,8 @@ interface TransactionDao {
     @Insert
     suspend fun insert(record: TransactionRecord): Long
 
-    /** 按月查询列表（历史月份可回看），LIMIT 500：单月数据量小，MVP 不做分页。 */
-    @Query("SELECT * FROM transactions WHERE occurredAt >= :startInclusive AND occurredAt < :endExclusive ORDER BY occurredAt DESC LIMIT 500")
+    /** 按月查询列表（历史月份可回看）。单月数据量可控，不再限制 500 条，避免较早记录不可见。 */
+    @Query("SELECT * FROM transactions WHERE occurredAt >= :startInclusive AND occurredAt < :endExclusive ORDER BY occurredAt DESC")
     fun observeBetween(startInclusive: Long, endExclusive: Long): Flow<List<TransactionRecord>>
 
     /** 今日/本月汇总：按 [startInclusive, endExclusive) 区间求和。 */
@@ -35,4 +35,12 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /** 一次性清理旧版本写入的通知原文摘要，只保留结构化摘要。 */
+    @Query(
+        "UPDATE transactions SET summary = CASE channel " +
+            "WHEN 'WECHAT' THEN '微信付款' WHEN 'ALIPAY' THEN '支付宝付款' ELSE summary END " +
+            "WHERE summary != '' AND summary != '手动记账' AND summary NOT IN ('微信付款', '支付宝付款')",
+    )
+    suspend fun scrubLegacySummaries()
 }

@@ -26,9 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import android.content.ComponentName
-import android.service.notification.NotificationListenerService
 import com.zhaoyingqi.payledger.PayLedgerApplication
+import com.zhaoyingqi.payledger.notification.ListenerHealth
 import com.zhaoyingqi.payledger.notification.NotificationLedgerService
 import com.zhaoyingqi.payledger.notification.NotificationParser
 import java.text.SimpleDateFormat
@@ -42,32 +41,41 @@ import kotlinx.coroutines.launch
 @Composable
 private fun ChannelStatusRow(
     listenerConnected: Boolean,
+    lastConnectedText: String?,
     accessibilityEnabled: Boolean,
     onRebind: () -> Unit,
 ) {
-    Row(
+    Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            if (listenerConnected) "通知监听：已连接 ✓" else "通知监听：未连接 ✗",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (listenerConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-        )
-        Spacer(Modifier.padding(4.dp))
-        Text(
-            if (accessibilityEnabled) "无障碍：已开启 ✓" else "无障碍：未开启（可选）",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (accessibilityEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (!listenerConnected) {
-            Spacer(Modifier.weight(1f))
-            Button(onClick = onRebind) { Text("重连") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (listenerConnected) "通知监听：已连接 ✓" else "通知监听：未连接 ✗",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (listenerConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.padding(4.dp))
+            Text(
+                if (accessibilityEnabled) "无障碍：已开启 ✓" else "无障碍：未开启（可选）",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (accessibilityEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!listenerConnected) {
+                Spacer(Modifier.weight(1f))
+                Button(onClick = onRebind) { Text("重连") }
+            }
+        }
+        if (!listenerConnected && lastConnectedText != null) {
+            Text(
+                "上次连接：$lastConnectedText",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
-/** 仅 debug 构建可达（顶栏「调试」进入）：查看最近收到的全部通知 + 模拟付款注入。 */
+/** 仅 debug 构建可达（顶栏「调试」进入）：查看微信/支付宝最近通知 + 模拟付款注入。 */
 @Composable
 fun DebugPreviewScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -77,6 +85,9 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
     val listenerConnected = remember(refreshTick) { NotificationLedgerService.connected }
+    val lastConnectedText = remember(refreshTick) {
+        ListenerHealth.lastConnectedAt(context).takeIf { it > 0 }?.let { timeFmt.format(Date(it)) }
+    }
     val accessibilityEnabled = remember(refreshTick) { checkAccessibility(context) }
 
     Column(Modifier.fillMaxSize()) {
@@ -91,7 +102,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
             }) { Text("清空") }
         }
         Text(
-            "说明：此页展示所有 App 的通知仅为校准解析规则；实际记账只解析微信/支付宝的付款通知。" +
+            "说明：此页只展示微信/支付宝最近的通知，用于校准解析规则；其他应用的通知不会进入缓冲。" +
                 "无障碍通道在系统层只监听微信/支付宝两个应用。数据仅存内存（最多 30 条、保留 7 天），不占存储。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -106,15 +117,11 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
         }
         ChannelStatusRow(
             listenerConnected = listenerConnected,
+            lastConnectedText = lastConnectedText,
             accessibilityEnabled = accessibilityEnabled,
             onRebind = {
-                try {
-                    NotificationListenerService.requestRebind(
-                        ComponentName(context, NotificationLedgerService::class.java),
-                    )
-                } catch (_: Exception) {
-                }
-                // 重连生效需要片刻，2 秒后复查状态
+                // 逐级重连（requestRebind → 必要时重置监听组件），2 秒后复查状态
+                ListenerHealth.reconnect(context, app.applicationScope)
                 scope.launch {
                     delay(2_000)
                     refreshTick += 1
@@ -147,7 +154,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             Text(
                 if (listenerConnected) "监听已连接但暂未收到新通知。" else
-                    "监听未连接——「授权」只是允许，系统还得把服务拉起来。请依次尝试：点「重连」→ 到系统设置把「通知使用权」关闭再开启 → 重启手机（升级安装或一键清理后台后，部分手机不会自动重绑，重启是唯一可靠恢复方式）。重启后先打开一次 PayLedger 再付款。",
+                    "监听未连接——已自动尝试重连；仍失败请点「重连」，或到系统设置把「通知使用权」关闭再开启，必要时重启手机。恢复后先打开一次 PayLedger 再付款。",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp),
             )
