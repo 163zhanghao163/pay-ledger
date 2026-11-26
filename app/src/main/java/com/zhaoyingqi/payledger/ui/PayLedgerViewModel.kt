@@ -11,6 +11,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -32,7 +33,8 @@ data class DayGroup(
 class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
 
     private val zone = ZoneId.systemDefault()
-    private val dayFmt = DateTimeFormatter.ofPattern("MM月dd日")
+    private val dayFmt = DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.CHINA)
+    private val dayFmtWithYear = DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE", Locale.CHINA)
 
     // —— 明细页 ——
     private val _selectedMonth = MutableStateFlow(currentMonth())
@@ -91,30 +93,27 @@ class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
         if (_statsYear.value < latestYear) _statsYear.value += 1
     }
 
-    /** 手动补记一笔：时间取当前时刻，渠道三选（微信/支付宝/手动）。 */
-    fun addManual(amountCents: Long, channel: String, note: String) = viewModelScope.launch {
-        val now = System.currentTimeMillis()
-        dao.insert(
-            TransactionRecord(
-                amountCents = amountCents,
-                channel = channel,
-                counterparty = "",
-                occurredAt = now,
-                summary = "手动记账",
-                note = note,
-                createdAt = now,
-            ),
-        )
+    /** 手动补记一笔：可指定日期时间，渠道三选（微信/支付宝/手动）。 */
+    fun addManual(
+        amountCents: Long,
+        channel: String,
+        note: String,
+        occurredAt: Long = System.currentTimeMillis(),
+    ) = viewModelScope.launch {
+        dao.insert(buildManualRecord(amountCents, channel, note, occurredAt))
     }
 
-    fun updateRecord(id: Long, amountCents: Long, note: String) =
-        viewModelScope.launch { dao.update(id, amountCents, note) }
+    fun updateRecord(id: Long, amountCents: Long, note: String, occurredAt: Long) =
+        viewModelScope.launch { dao.update(id, amountCents, note, occurredAt) }
 
     fun delete(id: Long) = viewModelScope.launch { dao.delete(id) }
 
     internal fun groupByDay(records: List<TransactionRecord>): List<DayGroup> =
         records.groupBy { Instant.ofEpochMilli(it.occurredAt).atZone(zone).toLocalDate() }
-            .map { (date, list) -> DayGroup(date, date.format(dayFmt), list, list.sumOf { it.amountCents }) }
+            .map { (date, list) ->
+                val fmt = if (date.year == currentMonth().year) dayFmt else dayFmtWithYear
+                DayGroup(date, date.format(fmt), list, list.sumOf { it.amountCents })
+            }
             .sortedByDescending { it.date }
 
     private fun currentMonth(): YearMonth = YearMonth.from(LocalDate.now(zone))
@@ -125,3 +124,20 @@ class PayLedgerViewModel(private val dao: TransactionDao) : ViewModel() {
     private fun startOfToday(): Long = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
     private fun startOfTomorrow(): Long = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 }
+
+/** 手动记录工厂：occurredAt 必须使用用户选择的记账时间，createdAt 才是入库时间。 */
+internal fun buildManualRecord(
+    amountCents: Long,
+    channel: String,
+    note: String,
+    occurredAt: Long,
+    createdAt: Long = System.currentTimeMillis(),
+): TransactionRecord = TransactionRecord(
+    amountCents = amountCents,
+    channel = channel,
+    counterparty = "",
+    occurredAt = occurredAt,
+    summary = "手动记账",
+    note = note,
+    createdAt = createdAt,
+)

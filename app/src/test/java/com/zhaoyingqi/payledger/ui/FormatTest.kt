@@ -3,6 +3,9 @@ package com.zhaoyingqi.payledger.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 
 class FormatTest {
 
@@ -37,5 +40,27 @@ class FormatTest {
         assertNull(parseAmountToCents("abc"))
         assertNull(parseAmountToCents("12.345"))
         assertNull(parseAmountToCents("-5"))
+    }
+
+    // —— 日期/时间选择与展示 ——
+    @Test fun picker_date_round_trip() {
+        val date = LocalDate.of(2026, 11, 24)
+        assertEquals(date, pickerMillisToLocalDate(localDateToPickerMillis(date)))
+    }
+
+    @Test fun local_date_time_round_trip() {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val date = LocalDate.of(2026, 11, 24)
+        val time = LocalTime.of(9, 30)
+        val millis = localDateTimeToEpochMillis(date, time, zone)
+        val back = epochMillisToLocalDateTime(millis, zone)
+        assertEquals(date, back.toLocalDate())
+        assertEquals(time, back.toLocalTime())
+    }
+
+    @Test fun clock_formatted_in_given_zone() {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val millis = localDateTimeToEpochMillis(LocalDate.of(2026, 11, 24), LocalTime.of(8, 5), zone)
+        assertEquals("08:05", formatClock(millis, zone))
     }
 }

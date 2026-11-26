@@ -29,9 +29,9 @@ interface TransactionDao {
     @Query("SELECT CAST(strftime('%m', occurredAt/1000, 'unixepoch', 'localtime') AS INTEGER) AS month, SUM(amountCents) AS totalCents FROM transactions WHERE occurredAt >= :startInclusive AND occurredAt < :endExclusive GROUP BY month ORDER BY month")
     fun observeMonthlySums(startInclusive: Long, endExclusive: Long): Flow<List<MonthSum>>
 
-    /** 编辑记录：金额与备注一起更新。 */
-    @Query("UPDATE transactions SET amountCents = :amountCents, note = :note WHERE id = :id")
-    suspend fun update(id: Long, amountCents: Long, note: String)
+    /** 编辑记录：金额、备注与发生时间一起更新。 */
+    @Query("UPDATE transactions SET amountCents = :amountCents, note = :note, occurredAt = :occurredAt WHERE id = :id")
+    suspend fun update(id: Long, amountCents: Long, note: String, occurredAt: Long)
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun delete(id: Long)

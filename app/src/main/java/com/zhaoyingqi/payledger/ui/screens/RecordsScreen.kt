@@ -1,30 +1,36 @@
 package com.zhaoyingqi.payledger.ui.screens
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,18 +41,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zhaoyingqi.payledger.data.TransactionRecord
 import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
+import com.zhaoyingqi.payledger.ui.formatClock
 import com.zhaoyingqi.payledger.ui.formatCents
-import com.zhaoyingqi.payledger.ui.parseAmountToCents
+import java.time.Instant
 import java.time.YearMonth
+import java.time.ZoneId
 
 /** 明细页：今日/当月支出卡 + 月份选择 + 按日分组记录列表 + FAB 手动记账。 */
 @Composable
@@ -56,6 +64,7 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     val monthCents by vm.monthCents.collectAsStateWithLifecycle()
     val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
     val atLatestMonth by vm.atLatestMonth.collectAsStateWithLifecycle()
+    val recordCount = remember(groups) { groups.sumOf { it.records.size } }
     var editing by remember { mutableStateOf<TransactionRecord?>(null) }
     var deleting by remember { mutableStateOf<TransactionRecord?>(null) }
     var showPicker by remember { mutableStateOf(false) }
@@ -67,37 +76,47 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
                 todayCents = todayCents,
                 monthCents = monthCents,
                 month = selectedMonth,
+                recordCount = recordCount,
                 atLatest = atLatestMonth,
                 onPrev = vm::prevMonth,
                 onNext = vm::nextMonth,
                 onOpenPicker = { showPicker = true },
             )
             if (groups.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("本月暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                EmptyState(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    onAdd = { showAdd = true },
+                )
             } else {
-                LazyColumn(Modifier.fillMaxSize().padding(bottom = 96.dp)) {
+                LazyColumn(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(bottom = 104.dp),
+                ) {
                     groups.forEach { group ->
                         item(key = "header-${group.date.toEpochDay()}") {
-                            Text(
-                                "${group.label}  支出 ${formatCents(group.totalCents)}",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
+                            DayHeader(group.label, group.records.size, group.totalCents)
                         }
                         items(group.records, key = { it.id }) { record ->
-                            RecordRow(record = record, onClick = { editing = record })
+                            RecordCard(
+                                record = record,
+                                onClick = { editing = record },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
                         }
                     }
                 }
             }
         }
-        FloatingActionButton(
-            onClick = { showAdd = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = "手动记账")
+        if (groups.isNotEmpty()) {
+            ExtendedFloatingActionButton(
+                onClick = { showAdd = true },
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                text = { Text("记一笔") },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                shape = RoundedCornerShape(18.dp),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
         }
     }
 
@@ -115,8 +134,9 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     if (showAdd) {
         ManualAddDialog(
             onDismiss = { showAdd = false },
-            onSave = { cents, channel, note ->
-                vm.addManual(cents, channel, note)
+            onSave = { cents, channel, note, occurredAt ->
+                vm.addManual(cents, channel, note, occurredAt)
+                vm.pickMonth(monthOf(occurredAt))
                 showAdd = false
             },
         )
@@ -125,8 +145,9 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
         EditRecordSheet(
             record = record,
             onDismiss = { editing = null },
-            onSave = { cents, note ->
-                vm.updateRecord(record.id, cents, note)
+            onSave = { cents, note, occurredAt ->
+                vm.updateRecord(record.id, cents, note, occurredAt)
+                vm.pickMonth(monthOf(occurredAt))
                 editing = null
             },
             onDelete = {
@@ -153,228 +174,269 @@ private fun SummaryCard(
     todayCents: Long,
     monthCents: Long,
     month: YearMonth,
+    recordCount: Int,
     atLatest: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onOpenPicker: () -> Unit,
 ) {
-    Column(
-        Modifier.fillMaxWidth().padding(16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(vertical = 14.dp),
+    val scheme = MaterialTheme.colorScheme
+    val shape = MaterialTheme.shapes.extraLarge
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        shape = shape,
+        color = scheme.primary,
+        contentColor = scheme.onPrimary,
+        shadowElevation = 6.dp,
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("今日支出", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
-                Text(formatCents(todayCents), style = MaterialTheme.typography.titleLarge)
+        Box(Modifier.clip(shape)) {
+            Canvas(Modifier.matchParentSize()) {
+                drawCircle(
+                    color = scheme.onPrimary.copy(alpha = 0.09f),
+                    radius = size.minDimension * 0.48f,
+                    center = Offset(size.width * 0.94f, 0f),
+                )
+                drawCircle(
+                    color = scheme.onPrimary.copy(alpha = 0.06f),
+                    radius = size.minDimension * 0.32f,
+                    center = Offset(size.width * 0.05f, size.height * 1.02f),
+                )
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${month.monthValue}月支出", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
-                Text(formatCents(monthCents), style = MaterialTheme.typography.titleLarge)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onPrev) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
-            Text(
-                "${month.year}年${month.monthValue}月 ▾",
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f).clickable(onClick = onOpenPicker).padding(vertical = 8.dp),
-            )
-            TextButton(onClick = onNext, enabled = !atLatest) {
-                Text("›", style = MaterialTheme.typography.headlineSmall)
-            }
-        }
-    }
-}
-
-/** 月份选择弹窗：年份切换 + 12 宫格。 */
-@Composable
-private fun MonthPickerDialog(
-    current: YearMonth,
-    latest: YearMonth,
-    onPick: (YearMonth) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var viewYear by remember(current) { mutableStateOf(current.year) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("选择月份") },
-        text = {
-            Column {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { viewYear -= 1 }) { Text("‹") }
-                    Text(
-                        "${viewYear}年",
-                        style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { viewYear += 1 }, enabled = viewYear < latest.year) { Text("›") }
-                }
-                Spacer(Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    (1..12).chunked(4).forEach { rowMonths ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            rowMonths.forEach { m ->
-                                val ym = YearMonth.of(viewYear, m)
-                                val selected = ym == current
-                                TextButton(
-                                    onClick = { onPick(ym) },
-                                    enabled = !ym.isAfter(latest),
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text(
-                                        "${m}月",
-                                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (recordCount > 0) {
+                                "${month.monthValue}月支出 · ${recordCount}笔"
+                            } else {
+                                "${month.monthValue}月支出"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = scheme.onPrimary.copy(alpha = 0.78f),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            formatCents(monthCents),
+                            style = MaterialTheme.typography.displaySmall,
+                            color = scheme.onPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = scheme.onPrimary.copy(alpha = 0.15f),
+                    ) {
+                        Column(
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            Text(
+                                "今日",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = scheme.onPrimary.copy(alpha = 0.75f),
+                            )
+                            Text(
+                                formatCents(todayCents),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-/** 手动记账弹窗：金额 + 渠道三选 + 备注。 */
-@Composable
-private fun ManualAddDialog(onDismiss: () -> Unit, onSave: (Long, String, String) -> Unit) {
-    var amount by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-    var channel by remember { mutableStateOf("MANUAL") }
-    val cents = parseAmountToCents(amount)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("手动记账") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it },
-                    label = { Text("金额（元）") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    isError = amount.isNotBlank() && cents == null,
-                    supportingText = if (amount.isNotBlank() && cents == null) {
-                        { Text("请输入有效金额，如 12.50") }
-                    } else null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("WECHAT" to "微信", "ALIPAY" to "支付宝", "MANUAL" to "其他").forEach { (key, label) ->
-                        FilterChip(selected = channel == key, onClick = { channel = key }, label = { Text(label) })
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("备注（可选）") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { cents?.let { onSave(it, channel, note.trim()) } }, enabled = cents != null) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-@Composable
-private fun RecordRow(record: TransactionRecord, onClick: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                channelLabel(record.channel),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                record.counterparty.ifEmpty {
-                    if (record.note.isEmpty()) record.summary.take(20).ifBlank { "自动记账" } else "备注见下"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(formatCents(record.amountCents), style = MaterialTheme.typography.titleMedium)
-        }
-        if (record.note.isNotEmpty()) {
-            Text(
-                "备注：${record.note}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-private fun channelLabel(channel: String): String = when (channel) {
-    "WECHAT" -> "微信"
-    "ALIPAY" -> "支付宝"
-    else -> "其他"
-}
-
-/** 编辑记录：金额、备注可改，删除入口显式化。 */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-private fun EditRecordSheet(
-    record: TransactionRecord,
-    onDismiss: () -> Unit,
-    onSave: (Long, String) -> Unit,
-    onDelete: () -> Unit,
-) {
-    var amount by remember(record.id) { mutableStateOf(formatCents(record.amountCents).removePrefix("¥")) }
-    var note by remember(record.id) { mutableStateOf(record.note) }
-    val cents = parseAmountToCents(amount)
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(16.dp)) {
-            Text("编辑记录", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = amount,
-                onValueChange = { amount = it },
-                label = { Text("金额（元）") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                singleLine = true,
-                isError = amount.isNotBlank() && cents == null,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("备注") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
-                    onClick = onDelete,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("删除这条记录") }
-                Row {
-                    TextButton(onClick = onDismiss) { Text("取消") }
+                Spacer(Modifier.height(18.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MonthArrowButton(
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        description = "上个月",
+                        enabled = true,
+                        onClick = onPrev,
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { cents?.let { onSave(it, note.trim()) } }, enabled = cents != null) { Text("保存") }
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = scheme.onPrimary.copy(alpha = 0.14f),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable(onClick = onOpenPicker)
+                                .padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "${month.year}年${month.monthValue}月",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = scheme.onPrimary,
+                            )
+                            Icon(
+                                Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "选择月份",
+                                tint = scheme.onPrimary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    MonthArrowButton(
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        description = "下个月",
+                        enabled = !atLatest,
+                        onClick = onNext,
+                    )
                 }
             }
-            Spacer(Modifier.height(24.dp))
         }
     }
 }
+
+@Composable
+private fun MonthArrowButton(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = if (enabled) 0.14f else 0.07f),
+    ) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(42.dp)) {
+            Icon(
+                icon,
+                contentDescription = description,
+                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = if (enabled) 0.95f else 0.35f),
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DayHeader(label: String, count: Int, totalCents: Long) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Text(
+                "$count 笔 · ${formatCents(totalCents)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecordCard(
+    record: TransactionRecord,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val title = recordTitle(record)
+    val note = record.note.trim()
+    val subtitle = if (note.isNotEmpty() && note != title) {
+        "${formatClock(record.occurredAt)} · $note"
+    } else {
+        formatClock(record.occurredAt)
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = scheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChannelBadge(record.channel)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                formatCents(record.amountCents),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(modifier: Modifier = Modifier, onAdd: () -> Unit) {
+    Column(
+        modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(Modifier.size(84.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    "¥",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("本月还没有记录", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "自动记账已就绪，也可以手动补一笔",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(18.dp))
+        Button(
+            onClick = onAdd,
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("手动记一笔")
+        }
+    }
+}
+
+private fun recordTitle(record: TransactionRecord): String =
+    record.counterparty.ifBlank {
+        record.note.trim().ifBlank {
+            record.summary.ifBlank { "手动记账" }
+        }
+    }
+
+/** 记录所属月份（用于保存后自动切换到对应月份）。 */
+private fun monthOf(epochMillis: Long): YearMonth =
+    YearMonth.from(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()))
