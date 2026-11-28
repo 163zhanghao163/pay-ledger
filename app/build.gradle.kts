@@ -8,7 +8,8 @@ plugins {
 
 android {
     namespace = "com.zhaoyingqi.payledger"
-    compileSdk = 35
+    // v09 2.3：core 1.18 / activity 1.12 的 AAR 元数据要求 compileSdk >= 36（AGP 8.13.2 上限即 36）
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.zhaoyingqi.payledger"
@@ -78,6 +79,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.compose.material3)
+    // BOM 2025.x 起 material3 不再传递依赖 icons，需显式引入（项目只用 core 集合 15 个图标）
+    implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.room.runtime)
