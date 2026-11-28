@@ -1,6 +1,7 @@
 package com.zhaoyingqi.payledger.ui.screens
 
-import androidx.compose.foundation.BorderStroke
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -30,10 +30,15 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,71 +48,146 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.data.TransactionRecord
+import com.zhaoyingqi.payledger.notification.ListenerStatus
 import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
-import com.zhaoyingqi.payledger.ui.formatClock
+import com.zhaoyingqi.payledger.ui.SearchFilter
 import com.zhaoyingqi.payledger.ui.formatCents
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-/** 明细页：今日/当月支出卡 + 月份选择 + 按日分组记录列表 + FAB 手动记账。 */
+/** 明细页：今日/当月支出卡 + 预算进度 + 月份选择 + 按日分组记录列表 + 搜索 + FAB 手动记账。 */
 @Composable
 fun RecordsScreen(vm: PayLedgerViewModel) {
     val groups by vm.groups.collectAsStateWithLifecycle()
     val todayCents by vm.todayCents.collectAsStateWithLifecycle()
     val monthCents by vm.monthCents.collectAsStateWithLifecycle()
+    val monthIncomeCents by vm.monthIncomeCents.collectAsStateWithLifecycle()
     val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
     val atLatestMonth by vm.atLatestMonth.collectAsStateWithLifecycle()
+    val rules by vm.rules.collectAsStateWithLifecycle()
+    val searchKeyword by vm.searchKeyword.collectAsStateWithLifecycle()
+    val searchFilter by vm.searchFilter.collectAsStateWithLifecycle()
+    val searchResults by vm.searchResults.collectAsStateWithLifecycle()
+    val budgetToday by vm.today.collectAsStateWithLifecycle()
+    val currentMonthSpent by vm.currentMonthCents.collectAsStateWithLifecycle()
+    val hasAnyRecords by vm.hasAnyRecords.collectAsStateWithLifecycle()
+    val app = LocalContext.current.applicationContext as PayLedgerApplication
+    val incomeEnabled by app.incomeEnabled.collectAsStateWithLifecycle()
+    val budgetSettings by app.budgetSettings.collectAsStateWithLifecycle()
+    val listenerStatus by ListenerStatus.snapshot.collectAsStateWithLifecycle()
     val recordCount = remember(groups) { groups.sumOf { it.records.size } }
     var editing by remember { mutableStateOf<TransactionRecord?>(null) }
     var deleting by remember { mutableStateOf<TransactionRecord?>(null) }
     var showPicker by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
+    var searchMode by remember { mutableStateOf(false) }
+    val searchActive = searchKeyword.isNotBlank() || searchFilter.isActive
+
+    // —— 软删除撤销（v07 4.2/D3）：Snackbar 显示 5 秒，点「撤销」恢复，超时后不可撤销 ——
+    val snackbarHostState = remember { SnackbarHostState() }
+    val lastDeletedId by vm.lastDeletedId.collectAsStateWithLifecycle()
+    LaunchedEffect(lastDeletedId) {
+        if (lastDeletedId == null) return@LaunchedEffect
+        val snackbar = launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "已删除该记录",
+                actionLabel = "撤销",
+                duration = SnackbarDuration.Indefinite,
+            )
+            if (result == SnackbarResult.ActionPerformed) vm.undoDelete()
+        }
+        delay(5_000)
+        vm.dismissUndo() // lastDeletedId 置空 → 本 LaunchedEffect 重启并取消 Snackbar
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            SummaryCard(
-                todayCents = todayCents,
-                monthCents = monthCents,
-                month = selectedMonth,
-                recordCount = recordCount,
-                atLatest = atLatestMonth,
-                onPrev = vm::prevMonth,
-                onNext = vm::nextMonth,
-                onOpenPicker = { showPicker = true },
-            )
-            if (groups.isEmpty()) {
-                EmptyState(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+            if (searchMode) {
+                SearchHeader(
+                    keyword = searchKeyword,
+                    filter = searchFilter,
+                    onKeywordChange = vm::setSearchKeyword,
+                    onFilterChange = vm::setSearchFilter,
+                    onClose = {
+                        searchMode = false
+                        vm.setSearchKeyword("")
+                        vm.setSearchFilter(SearchFilter())
+                    },
+                )
+                SearchResultsArea(
+                    active = searchActive,
+                    results = searchResults,
+                    onEdit = { editing = it },
                     onAdd = { showAdd = true },
                 )
             } else {
-                LazyColumn(
-                    Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = 104.dp),
-                ) {
-                    groups.forEach { group ->
-                        item(key = "header-${group.date.toEpochDay()}") {
-                            DayHeader(group.label, group.records.size, group.totalCents)
-                        }
-                        items(group.records, key = { it.id }) { record ->
-                            RecordCard(
-                                record = record,
-                                onClick = { editing = record },
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                            )
+                SummaryCard(
+                    todayCents = todayCents,
+                    monthCents = monthCents,
+                    monthIncomeCents = monthIncomeCents,
+                    month = selectedMonth,
+                    recordCount = recordCount,
+                    atLatest = atLatestMonth,
+                    onPrev = vm::prevMonth,
+                    onNext = vm::nextMonth,
+                    onOpenPicker = { showPicker = true },
+                )
+                SearchEntryRow(onOpenSearch = { searchMode = true })
+                // 预算进度（v08 4.5）：跨零点由 dateBoundaryFlow 重算，关闭或金额为 0 不渲染
+                BudgetProgress(
+                    settings = budgetSettings,
+                    monthSpentCents = currentMonthSpent,
+                    today = budgetToday,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                if (groups.isEmpty()) {
+                    if (!hasAnyRecords && listenerStatus.authorized) {
+                        // 空库引导（v08 3.3）：无记录且已授权时给出三路状态检查清单
+                        OnboardingEmptyState(
+                            authorized = listenerStatus.authorized,
+                            notificationConnected = listenerStatus.notificationConnected,
+                            accessibilityConnected = listenerStatus.accessibilityConnected,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            onAdd = { showAdd = true },
+                        )
+                    } else {
+                        EmptyState(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            onAdd = { showAdd = true },
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(bottom = 104.dp),
+                    ) {
+                        groups.forEach { group ->
+                            item(key = "header-${group.date.toEpochDay()}") {
+                                DayHeader(group.label, group.records.size, group.totalCents)
+                            }
+                            items(group.records, key = { it.id }) { record ->
+                                RecordCard(
+                                    record = record,
+                                    onClick = { editing = record },
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-        if (groups.isNotEmpty()) {
+        if (!searchMode && groups.isNotEmpty()) {
             ExtendedFloatingActionButton(
                 onClick = { showAdd = true },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
@@ -118,6 +198,10 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         }
+        SnackbarHost(
+            snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 84.dp),
+        )
     }
 
     if (showPicker) {
@@ -133,9 +217,11 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     }
     if (showAdd) {
         ManualAddDialog(
+            incomeEnabled = incomeEnabled,
+            rules = rules,
             onDismiss = { showAdd = false },
-            onSave = { cents, channel, note, occurredAt ->
-                vm.addManual(cents, channel, note, occurredAt)
+            onSave = { cents, channel, note, occurredAt, counterparty, type, category ->
+                vm.addManual(cents, channel, note, occurredAt, counterparty = counterparty, type = type, category = category)
                 vm.pickMonth(monthOf(occurredAt))
                 showAdd = false
             },
@@ -145,8 +231,8 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
         EditRecordSheet(
             record = record,
             onDismiss = { editing = null },
-            onSave = { cents, note, occurredAt ->
-                vm.updateRecord(record.id, cents, note, occurredAt)
+            onSave = { id, cents, note, occurredAt, channel, counterparty, type, category ->
+                vm.updateRecord(id, cents, note, occurredAt, channel, counterparty, type, category)
                 vm.pickMonth(monthOf(occurredAt))
                 editing = null
             },
@@ -160,7 +246,7 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("删除记录") },
-            text = { Text("删除 ${formatCents(record.amountCents)} 这条记录？") },
+            text = { Text("删除 ${formatCents(record.amountCents)} 这条记录？\n删除后 5 秒内可撤销，7 天后自动清理。") },
             confirmButton = {
                 TextButton(onClick = { vm.delete(record.id); deleting = null }) { Text("删除") }
             },
@@ -169,10 +255,13 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     }
 }
 
+// —— 月度汇总与列表 ——
+
 @Composable
 private fun SummaryCard(
     todayCents: Long,
     monthCents: Long,
+    monthIncomeCents: Long,
     month: YearMonth,
     recordCount: Int,
     atLatest: Boolean,
@@ -222,6 +311,14 @@ private fun SummaryCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (monthIncomeCents > 0) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "本月收入 +${formatCents(monthIncomeCents)}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = scheme.onPrimary.copy(alpha = 0.85f),
+                            )
+                        }
                     }
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -314,128 +411,6 @@ private fun MonthArrowButton(
         }
     }
 }
-
-@Composable
-private fun DayHeader(label: String, count: Int, totalCents: Long) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ) {
-            Text(
-                "$count 笔 · ${formatCents(totalCents)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun RecordCard(
-    record: TransactionRecord,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val scheme = MaterialTheme.colorScheme
-    val title = recordTitle(record)
-    val note = record.note.trim()
-    val subtitle = if (note.isNotEmpty() && note != title) {
-        "${formatClock(record.occurredAt)} · $note"
-    } else {
-        formatClock(record.occurredAt)
-    }
-    Surface(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = scheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f)),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ChannelBadge(record.channel)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Text(
-                formatCents(record.amountCents),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyState(modifier: Modifier = Modifier, onAdd: () -> Unit) {
-    Column(
-        modifier.padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Surface(Modifier.size(84.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    "¥",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        Text("本月还没有记录", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "自动记账已就绪，也可以手动补一笔",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(18.dp))
-        Button(
-            onClick = onAdd,
-            shape = RoundedCornerShape(14.dp),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("手动记一笔")
-        }
-    }
-}
-
-private fun recordTitle(record: TransactionRecord): String =
-    record.counterparty.ifBlank {
-        record.note.trim().ifBlank {
-            record.summary.ifBlank { "手动记账" }
-        }
-    }
 
 /** 记录所属月份（用于保存后自动切换到对应月份）。 */
 private fun monthOf(epochMillis: Long): YearMonth =

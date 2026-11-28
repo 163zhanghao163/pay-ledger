@@ -18,7 +18,7 @@ class NotificationLedgerService : NotificationListenerService() {
         val pkg = sbn.packageName
         // 只处理微信/支付宝；其他应用的通知直接丢弃，不解析、不进调试缓冲。
         if (!isTargetPackage(pkg)) return
-        connected = true
+        ListenerStatus.setNotificationConnected(true)
         val extras = sbn.notification?.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
         var text = extractBody(extras)
@@ -29,13 +29,20 @@ class NotificationLedgerService : NotificationListenerService() {
         // debug 构建只记录微信/支付宝通知，便于校准解析规则；release 零开销
         if (BuildConfig.DEBUG) app.recentNotifications.push(RawNotification(pkg, title, text, sbn.postTime))
 
-        val parsed = NotificationParser.parse(pkg, title, text)
+        val receivedAt = sbn.postTime
+        // 收入开关从 Application StateFlow 读缓存（v07 6.2），不逐条读 SharedPreferences
+        val parsed = NotificationParser.parse(
+            pkg,
+            title,
+            text,
+            receivedAt = receivedAt,
+            incomeEnabled = app.incomeEnabled.value,
+        )
         if (parsed == null) {
             if (BuildConfig.DEBUG) Log.d(TAG, "ignored: pkg=$pkg title=$title")
             return
         }
-        val occurredAt = sbn.postTime
-        app.applicationScope.launch { save(parsed, occurredAt) }
+        app.applicationScope.launch { save(parsed, receivedAt) }
     }
 
     /** 正文提取：TEXT → BIG_TEXT → TEXT_LINES（MessagingStyle，如微信消息式通知）。 */
@@ -77,20 +84,20 @@ class NotificationLedgerService : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
-        connected = true
+        ListenerStatus.setNotificationConnected(true)
         ListenerHealth.markConnected(app)
         super.onListenerConnected()
     }
 
     override fun onListenerDisconnected() {
-        connected = false
+        ListenerStatus.setNotificationConnected(false)
         // 系统断开（升级安装/省电杀服务）后主动请求重连（内部有节流），避免静默失效
         ListenerHealth.requestRebind(app)
         super.onListenerDisconnected()
     }
 
     override fun onDestroy() {
-        connected = false
+        ListenerStatus.setNotificationConnected(false)
         super.onDestroy()
     }
 
@@ -100,10 +107,5 @@ class NotificationLedgerService : NotificationListenerService() {
 
         private fun isTargetPackage(pkg: String): Boolean =
             pkg == ParserRules.PACKAGE_WECHAT || pkg == ParserRules.PACKAGE_ALIPAY
-
-        /** 监听是否已连接（onListenerConnected ↔ 断开），供 UI 检测"有权限但没在工作"的状态。 */
-        @Volatile
-        var connected = false
-            private set
     }
 }

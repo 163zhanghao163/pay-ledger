@@ -47,7 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.notification.ListenerHealth
-import com.zhaoyingqi.payledger.notification.NotificationLedgerService
+import com.zhaoyingqi.payledger.notification.ListenerStatus
 import com.zhaoyingqi.payledger.notification.NotificationParser
 import com.zhaoyingqi.payledger.notification.RawNotification
 import java.text.SimpleDateFormat
@@ -66,7 +66,7 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
     val entries = remember(refreshTick) { app.recentNotifications.snapshot() }
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
-    val listenerConnected = remember(refreshTick) { NotificationLedgerService.connected }
+    val listenerConnected = remember(refreshTick) { ListenerStatus.snapshot.value.notificationConnected }
     val lastConnectedText = remember(refreshTick) {
         ListenerHealth.lastConnectedAt(context).takeIf { it > 0 }?.let { timeFmt.format(Date(it)) }
     }
@@ -162,10 +162,13 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
                         Button(
                             onClick = {
                                 scope.launch {
+                                    // 模板带当前时刻的付款时间，验证「文案时间解析入账、不标估算」路径
+                                    val stamp = java.time.LocalDateTime.now()
+                                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                                     NotificationParser.parse(
                                         "com.tencent.mm",
                                         "微信",
-                                        "微信支付凭证\n付款成功 ¥9.99\n付款给 测试商户",
+                                        "微信支付凭证\n付款成功 ¥9.99\n付款给 测试商户\n$stamp",
                                     )?.let { app.savePayment(it, System.currentTimeMillis()) }
                                     refreshTick += 1
                                 }

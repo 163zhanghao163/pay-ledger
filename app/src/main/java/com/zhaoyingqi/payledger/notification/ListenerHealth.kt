@@ -58,13 +58,13 @@ object ListenerHealth {
 
     /** 应用回到前台 / 无障碍服务连上时调用；未连接才尝试，避免打扰系统。 */
     fun ensureConnected(context: Context, scope: CoroutineScope) {
-        if (!isAuthorized(context) || NotificationLedgerService.connected) return
+        if (!isAuthorized(context) || ListenerStatus.snapshot.value.notificationConnected) return
         reconnect(context, scope)
     }
 
     /** 逐级重连：requestRebind → 等待 → （节流内未尝试过则）重置组件并再次重绑。 */
     fun reconnect(context: Context, scope: CoroutineScope) {
-        if (!isAuthorized(context) || NotificationLedgerService.connected) return
+        if (!isAuthorized(context) || ListenerStatus.snapshot.value.notificationConnected) return
         synchronized(this) {
             if (reconnecting) return
             reconnecting = true
@@ -73,7 +73,7 @@ object ListenerHealth {
         scope.launch {
             try {
                 if (requestRebind(app, force = true)) delay(1_500)
-                if (NotificationLedgerService.connected) return@launch
+                if (ListenerStatus.snapshot.value.notificationConnected) return@launch
                 if (shouldToggle(app)) {
                     toggleComponent(app)
                     requestRebind(app, force = true)

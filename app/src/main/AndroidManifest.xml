@@ -3,6 +3,9 @@
     <!-- 仅用于开机/升级后请求重新绑定通知监听，不联网、不读取其他数据 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 预算提醒本地通知（v08 D5）；API 33+ 需运行时授权，拒绝只影响提醒不影响记账 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".PayLedgerApplication"
         android:label="@string/app_name"

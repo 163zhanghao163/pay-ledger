@@ -206,4 +206,77 @@ class NotificationParserTest {
         val r = NotificationParser.parse("com.tencent.mm", "微信支付", "付款成功 ¥20.00，如不满意可申请退款")
         assertEquals(2000L, r?.amountCents)
     }
+
+    // —— v06 软/硬忽略词拆分（任务 4.1） ——
+    @Test fun soft_ignore_with_pay_keyword_recorded() {
+        // 账单文案同时含软忽略词「应付」与付款词「实付」：入账实付 18 元
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "应付金额 ¥20 实付 ¥18.00")
+        assertEquals(1800L, r?.amountCents)
+    }
+
+    @Test fun soft_ignore_without_pay_keyword_ignored() {
+        assertNull(NotificationParser.parse("com.tencent.mm", "微信支付", "应付金额 ¥20.00"))
+    }
+
+    @Test fun hard_ignore_wins_over_pay_keyword() {
+        assertNull(NotificationParser.parse("com.tencent.mm", "微信支付", "待支付 ¥20 实付 ¥20"))
+    }
+
+    // —— v07 收入开关（任务 6.2） ——
+    @Test fun income_ignored_when_switch_off() {
+        // 开关关闭（默认）：收款类文案照旧被硬忽略词丢弃，与 v06 行为一致
+        assertNull(NotificationParser.parse("com.tencent.mm", "微信支付", "收款到账 50.00 元"))
+    }
+
+    @Test fun income_parsed_when_switch_on() {
+        val r = NotificationParser.parse("com.tencent.mm", "微信支付", "收款到账 50.00 元", incomeEnabled = true)
+        assertEquals(5000L, r?.amountCents)
+        assertEquals("INCOME", r?.type)
+        assertEquals("微信收款", r?.summary)
+    }
+
+    @Test fun income_without_amount_ignored_even_when_switch_on() {
+        assertNull(NotificationParser.parse("com.tencent.mm", "微信支付", "已收款，详情见账单", incomeEnabled = true))
+    }
+
+    // —— v06 交易时间解析（任务 4.3） ——
+    private val arrival = java.time.LocalDateTime.of(2026, 11, 27, 15, 0)
+        .atZone(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli()
+
+    @Test fun parsed_text_time_is_used() {
+        val r = NotificationParser.parse(
+            "com.tencent.mm", "微信支付", "付款成功 ¥11.00\n2026-11-27 14:30",
+            receivedAt = arrival, zone = TEST_ZONE,
+        )
+        assertEquals(1100L, r?.amountCents)
+        assertEquals(false, r?.timeEstimated)
+        assertEquals(
+            java.time.LocalDateTime.of(2026, 11, 27, 14, 30).atZone(TEST_ZONE).toInstant().toEpochMilli(),
+            r?.occurredAt,
+        )
+    }
+
+    @Test fun missing_time_marks_estimated() {
+        val r = NotificationParser.parse(
+            "com.tencent.mm", "微信支付", "付款成功 ¥11.00",
+            receivedAt = arrival, zone = TEST_ZONE,
+        )
+        assertEquals(1100L, r?.amountCents)
+        assertNull(r?.occurredAt)
+        assertEquals(true, r?.timeEstimated)
+    }
+
+    @Test fun untrusted_time_falls_back_to_estimated() {
+        // 文案时间早于到达 24h 以上：视为不可信，不采用
+        val r = NotificationParser.parse(
+            "com.tencent.mm", "微信支付", "付款成功 ¥11.00\n2026-11-01 10:00",
+            receivedAt = arrival, zone = TEST_ZONE,
+        )
+        assertNull(r?.occurredAt)
+        assertEquals(true, r?.timeEstimated)
+    }
+
+    companion object {
+        private val TEST_ZONE = java.time.ZoneId.of("Asia/Shanghai")
+    }
 }

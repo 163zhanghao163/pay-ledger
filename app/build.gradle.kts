@@ -32,8 +32,33 @@ android {
         compose = true
         buildConfig = true
     }
-    lint { abortOnError = false }
+    lint {
+        // 存量问题已基线化（lint-baseline.xml），只拦新增问题；基线只减不增
+        abortOnError = true
+        baseline = file("lint-baseline.xml")
+    }
     kotlinOptions { jvmTarget = "17" }
+
+    sourceSets {
+        // Room 迁移测试需要读取各版本 schema JSON：
+        // test 供 instrumented test 使用，debug 供 Robolectric 单测（AGP 不合并 test sourceSet 的 assets）。
+        getByName("test") {
+            assets.srcDir("$projectDir/schemas")
+        }
+        getByName("debug") {
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
+    testOptions {
+        unitTests {
+            // Robolectric 使用合并后的 manifest 与资源（ packageName / schema assets）。
+            isIncludeAndroidResources = true
+        }
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -41,6 +66,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -48,4 +75,9 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.coroutines.test)
 }

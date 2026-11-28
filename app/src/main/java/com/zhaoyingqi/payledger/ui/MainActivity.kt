@@ -35,11 +35,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,25 +45,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zhaoyingqi.payledger.BuildConfig
 import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.R
 import com.zhaoyingqi.payledger.notification.ListenerHealth
-import com.zhaoyingqi.payledger.notification.NotificationLedgerService
+import com.zhaoyingqi.payledger.notification.ListenerStatus
 import com.zhaoyingqi.payledger.ui.screens.AuthorizationScreen
 import com.zhaoyingqi.payledger.ui.screens.BrandMark
+import com.zhaoyingqi.payledger.ui.screens.CategoryRulesScreen
 import com.zhaoyingqi.payledger.ui.screens.DebugPreviewScreen
 import com.zhaoyingqi.payledger.ui.screens.HelpScreen
 import com.zhaoyingqi.payledger.ui.screens.RecordsScreen
 import com.zhaoyingqi.payledger.ui.screens.StatsScreen
+import com.zhaoyingqi.payledger.ui.screens.checkAccessibility
 import com.zhaoyingqi.payledger.ui.theme.PayLedgerTheme
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 
 class MainActivity : ComponentActivity() {
 
@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as PayLedgerApplication
         listenerEnabled = isListenerEnabled()
+        syncListenerStatus()
         setContent {
             PayLedgerTheme {
                 if (listenerEnabled) MainShell() else AuthorizationScreen()
@@ -85,29 +86,33 @@ class MainActivity : ComponentActivity() {
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 listenerEnabled = isListenerEnabled()
+                syncListenerStatus()
                 ListenerHealth.ensureConnected(this@MainActivity, app.applicationScope)
             }
         })
+    }
+
+    /** 无障碍状态值变化时应用必然经过一次 ON_RESUME，这里读一次即可（v08 D2）。 */
+    private fun syncListenerStatus() {
+        ListenerStatus.setAuthorized(listenerEnabled)
+        ListenerStatus.setAccessibilityConnected(checkAccessibility(this))
     }
 
     @Composable
     private fun MainShell() {
         val context = LocalContext.current
         val app = context.applicationContext as PayLedgerApplication
-        val vm: PayLedgerViewModel = viewModel(initializer = { PayLedgerViewModel(app.dao) })
+        val vm: PayLedgerViewModel = viewModel(
+            initializer = {
+                PayLedgerViewModel(app.dao, appContext = app, ruleDao = app.database.categoryRuleDao())
+            },
+        )
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var showDebug by rememberSaveable { mutableStateOf(false) }
         var showHelp by rememberSaveable { mutableStateOf(false) }
-        var listenerConnected by remember { mutableStateOf(NotificationLedgerService.connected) }
-        val secondary = showDebug || showHelp
-
-        // 连接状态由系统回调更新，界面每 2 秒轮询一次（开销可忽略）
-        LaunchedEffect(Unit) {
-            while (isActive) {
-                delay(2_000)
-                listenerConnected = NotificationLedgerService.connected
-            }
-        }
+        var showRules by rememberSaveable { mutableStateOf(false) }
+        val status by ListenerStatus.snapshot.collectAsStateWithLifecycle()
+        val secondary = showDebug || showHelp || showRules
 
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
@@ -119,12 +124,17 @@ class MainActivity : ComponentActivity() {
                             debugVisible = BuildConfig.DEBUG,
                             onHelp = { showHelp = true },
                         )
-                        if (!listenerConnected) {
-                            ListenerBanner(
+                        when {
+                            // 断开横幅：有授权但监听未在工作（v08 D2）
+                            !status.notificationConnected -> ListenerBanner(
                                 onReconnect = { ListenerHealth.reconnect(context, app.applicationScope) },
                                 onSettings = {
                                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                 },
+                            )
+                            // 低强调提示行：监听正常但无障碍未开启，前台支付可能漏记（v08 1.3/D2）
+                            !status.accessibilityConnected -> AccessibilityHintRow(
+                                onOpen = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                             )
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
@@ -143,7 +153,8 @@ class MainActivity : ComponentActivity() {
             Box(Modifier.padding(padding)) {
                 when {
                     showDebug -> DebugPreviewScreen(onBack = { showDebug = false })
-                    showHelp -> HelpScreen(onBack = { showHelp = false })
+                    showRules -> CategoryRulesScreen(vm, onBack = { showRules = false })
+                    showHelp -> HelpScreen(onBack = { showHelp = false }, onOpenRules = { showRules = true })
                     tab == 0 -> RecordsScreen(vm)
                     else -> StatsScreen(vm, onJumpToList = { tab = 0 })
                 }
@@ -273,4 +284,65 @@ private fun ListenerBanner(onReconnect: () -> Unit, onSettings: () -> Unit) {
             }
         }
     }
+}
+
+/** 低强调提示行（v08 D2）：监听正常但无障碍未开启，前台支付可能漏记。 */
+@Composable
+private fun AccessibilityHintRow(onOpen: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = scheme.surfaceContainerHigh,
+    ) {
+        Row(
+            Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Build,
+                contentDescription = null,
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "未开启无障碍，前台支付可能漏记",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onOpen,
+                colors = ButtonDefaults.textButtonColors(contentColor = scheme.primary),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) { Text("去开启") }
+        }
+    }
+}
+
+// —— 横幅预览（v08 5.2，亮/暗）——
+
+@Preview(name = "断连横幅（亮）", showBackground = true)
+@Composable
+private fun ListenerBannerLightPreview() {
+    MaterialTheme { ListenerBanner(onReconnect = {}, onSettings = {}) }
+}
+
+@Preview(name = "断连横幅（暗）", showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun ListenerBannerDarkPreview() {
+    MaterialTheme { ListenerBanner(onReconnect = {}, onSettings = {}) }
+}
+
+@Preview(name = "无障碍提示行（亮）", showBackground = true)
+@Composable
+private fun AccessibilityHintLightPreview() {
+    MaterialTheme { AccessibilityHintRow(onOpen = {}) }
+}
+
+@Preview(name = "无障碍提示行（暗）", showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun AccessibilityHintDarkPreview() {
+    MaterialTheme { AccessibilityHintRow(onOpen = {}) }
 }

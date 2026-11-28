@@ -1,10 +1,8 @@
 package com.zhaoyingqi.payledger.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,13 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,11 +44,13 @@ import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
 import com.zhaoyingqi.payledger.ui.formatCents
 import java.time.YearMonth
 
-/** 统计页：年度概览 + 月度柱状图 + 各月进度列表；点柱或点行跳转到对应月份明细。 */
+/** 统计页骨架（v08 2.1 拆分）：年度概览 + 月度趋势（MonthlyBarChart）+ 分类占比/Top5（CategoryBreakdown）+ 各月明细。 */
 @Composable
 fun StatsScreen(vm: PayLedgerViewModel, onJumpToList: () -> Unit) {
     val year by vm.statsYear.collectAsStateWithLifecycle()
     val sums by vm.monthlySums.collectAsStateWithLifecycle()
+    val categorySums by vm.categorySums.collectAsStateWithLifecycle()
+    val topMerchants by vm.topMerchants.collectAsStateWithLifecycle()
     val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
     val total = remember(sums) { sums.sumOf { it.totalCents } }
     val activeMonths = remember(sums) { sums.count { it.totalCents > 0 } }
@@ -108,6 +104,12 @@ fun StatsScreen(vm: PayLedgerViewModel, onJumpToList: () -> Unit) {
                     maxAmount = maxAmount,
                     onBarTap = openMonth,
                 )
+            }
+            item {
+                CategoryBreakdownCard(sums = categorySums)
+            }
+            item {
+                TopMerchantsCard(sums = topMerchants)
             }
             item {
                 MonthlyBreakdownCard(
@@ -241,110 +243,6 @@ private fun OverviewStat(label: String, value: String, modifier: Modifier = Modi
 }
 
 @Composable
-private fun TrendCard(
-    sums: List<MonthSum>,
-    highlightMonth: Int?,
-    maxAmount: Long,
-    onBarTap: (Int) -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("月度趋势", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "点击柱形查看该月明细",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(
-                    "峰值 ${formatCents(maxAmount)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            BarChart(
-                sums = sums,
-                highlightMonth = highlightMonth,
-                onBarTap = onBarTap,
-                modifier = Modifier.fillMaxWidth().height(168.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth()) {
-                (1..12).forEach { month ->
-                    Text(
-                        "$month",
-                        Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 12 根月度柱；带背景槽与高亮月，点击命中按柱宽计算。 */
-@Composable
-private fun BarChart(
-    sums: List<MonthSum>,
-    highlightMonth: Int?,
-    onBarTap: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val primary = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.surfaceContainerHighest
-    val byMonth = remember(sums) { sums.associate { it.month to it.totalCents } }
-    val maxSum = remember(sums) { sums.maxOfOrNull { it.totalCents } ?: 0L }
-    val barGap = 6.dp
-
-    Canvas(
-        modifier.pointerInput(sums) {
-            detectTapGestures { pos ->
-                val gap = barGap.toPx()
-                val barWidth = (size.width - gap * 11) / 12
-                val index = (pos.x / (barWidth + gap)).toInt().coerceIn(0, 11)
-                onBarTap(index + 1)
-            }
-        },
-    ) {
-        val gap = barGap.toPx()
-        val barWidth = (size.width - gap * 11) / 12
-        val radius = CornerRadius(5.dp.toPx())
-        (1..12).forEach { month ->
-            val x = (month - 1) * (barWidth + gap)
-            drawRoundRect(
-                color = track.copy(alpha = 0.55f),
-                topLeft = Offset(x, 0f),
-                size = Size(barWidth, size.height),
-                cornerRadius = radius,
-            )
-            val total = (byMonth[month] ?: 0L).toFloat()
-            if (total > 0f && maxSum > 0L) {
-                val height = (total / maxSum * size.height)
-                    .coerceAtLeast(4.dp.toPx())
-                    .coerceAtMost(size.height)
-                drawRoundRect(
-                    color = if (month == highlightMonth) primary else primary.copy(alpha = 0.5f),
-                    topLeft = Offset(x, size.height - height),
-                    size = Size(barWidth, height),
-                    cornerRadius = radius,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun MonthlyBreakdownCard(
     byMonth: Map<Int, Long>,
     maxAmount: Long,
@@ -355,7 +253,7 @@ private fun MonthlyBreakdownCard(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
     ) {
         Column {
             Row(

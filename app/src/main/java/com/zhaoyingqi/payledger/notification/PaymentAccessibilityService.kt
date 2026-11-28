@@ -5,12 +5,13 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.zhaoyingqi.payledger.PayLedgerApplication
+import com.zhaoyingqi.payledger.data.TransactionRecord
 import kotlinx.coroutines.launch
 
 /**
  * 无障碍兜底：付款时微信/支付宝常在前台，系统可能不发通知栏通知，通知监听会漏。
  * 只监听微信/支付宝两个包名（见 xml/accessibility_service_config.xml），读取支付成功页面文本补记；
- * 解析与入库复用 NotificationParser + savePayment（含 ±3 秒去重，与通知通道天然互斥）。
+ * 解析与入库复用 NotificationParser + savePayment（含 ±10 秒去重，与通知通道天然互斥）。
  */
 class PaymentAccessibilityService : AccessibilityService() {
 
@@ -30,11 +31,11 @@ class PaymentAccessibilityService : AccessibilityService() {
         val texts = LinkedHashSet<String>()
         event.text?.forEach { t -> t?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { texts.add(it) } }
 
-        var parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"), ParserRules.A11Y_PAY_KEYWORDS)
+        var parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"), ParserRules.A11Y_PAY_KEYWORDS, now)
         if (parsed == null) {
             // 事件自带文本没有金额时，读取窗口内容兜底（支付成功页的金额常在子节点里）
             collectWindowTexts(texts)
-            parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"), ParserRules.A11Y_PAY_KEYWORDS)
+            parsed = NotificationParser.parse(pkg, null, texts.joinToString("\n"), ParserRules.A11Y_PAY_KEYWORDS, now)
         }
         val combined = texts.joinToString("\n")
         if (combined.isEmpty()) return
@@ -45,7 +46,7 @@ class PaymentAccessibilityService : AccessibilityService() {
         parsed ?: return
         app.applicationScope.launch {
             try {
-                app.savePayment(parsed, now)
+                app.savePayment(parsed, now, TransactionRecord.SOURCE_ACCESSIBILITY)
             } catch (e: Exception) {
                 Log.e(TAG, "save failed", e) // 不写捕获文本，避免敏感信息落日志
             }
@@ -75,19 +76,19 @@ class PaymentAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onServiceConnected() {
-        connected = true
+        ListenerStatus.setAccessibilityConnected(true)
         // 无障碍服务由系统常驻绑定，作为锚点帮通知监听在进程重启后重新连上。
         ListenerHealth.ensureConnected(app, app.applicationScope)
         super.onServiceConnected()
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
-        connected = false
+        ListenerStatus.setAccessibilityConnected(false)
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        connected = false
+        ListenerStatus.setAccessibilityConnected(false)
         super.onDestroy()
     }
 
@@ -96,10 +97,5 @@ class PaymentAccessibilityService : AccessibilityService() {
         private const val THROTTLE_MS = 800L
         private const val MAX_DEPTH = 6
         private const val MAX_NODES = 120
-
-        /** 无障碍服务是否已连接，供 UI 显示状态。 */
-        @Volatile
-        var connected = false
-            private set
     }
 }
