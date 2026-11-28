@@ -14,7 +14,8 @@ android {
     defaultConfig {
         applicationId = "com.zhaoyingqi.payledger"
         minSdk = 26
-        targetSdk = 35
+        // v09 2.5：targetSdk 跟随 compileSdk 升到 36（通知权限、无障碍、监听行为需真机回归）
+        targetSdk = 36
         versionCode = 15
         versionName = "0.5.7"
     }
@@ -68,6 +69,13 @@ android {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+tasks.withType<Test>().configureEach {
+    // Robolectric SDK 36 沙箱要求 Java 21（compile 链保持 JDK 20/目标 17 不变）
+    javaLauncher.set(
+        javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) },
+    )
 }
 
 dependencies {
