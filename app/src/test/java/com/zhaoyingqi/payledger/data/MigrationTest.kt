@@ -21,7 +21,13 @@ class MigrationTest {
         LedgerDatabase::class.java,
     )
 
-    private val db = "migration-test.db"
+    // Room 2.8 起 helper 内部以 getDatabasePath(name).absolutePath 打开连接，而驱动要求
+    // 该路径与 getDatabaseName() 一致，因此库名必须传绝对路径（裸名会在驱动校验处失败）
+    private val db: String =
+        InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .getDatabasePath("migration-test.db")
+            .absolutePath
     private val zone = ZoneId.of("Asia/Shanghai")
     private val t1 = LocalDate.of(2026, 11, 20).atTime(12, 30).atZone(zone).toInstant().toEpochMilli()
     private val t2 = LocalDate.of(2026, 12, 1).atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
