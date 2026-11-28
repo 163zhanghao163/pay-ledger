@@ -6,3 +6,7 @@ local.properties
 *.iml
 captures/
 .DS_Store
+# v09 D3：签名密钥配置与密钥库，只留本地/CI Secrets，不入仓库
+keystore.properties
+*.jks
+*.keystore

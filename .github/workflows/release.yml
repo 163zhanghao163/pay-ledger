@@ -1,0 +1,55 @@
+name: Release
+
+# v09 4.3：打 v* tag 触发；Secrets 还原签名密钥；构建 AAB + APK 并随 sha256sums.txt 发布。
+# 需要配置的仓库 Secrets：
+#   RELEASE_KEYSTORE_B64          —— 密钥库文件（.jks）的 base64（base64 -w0 keystore.jks）
+#   RELEASE_KEYSTORE_PROPERTIES   —— keystore.properties 文件原文（storeFile 路径写 keystore.jks）
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          KEYSTORE_PROPERTIES: ${{ secrets.RELEASE_KEYSTORE_PROPERTIES }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo "::error::缺少 Secret RELEASE_KEYSTORE_B64"; exit 1; }
+          test -n "$KEYSTORE_PROPERTIES" || { echo "::error::缺少 Secret RELEASE_KEYSTORE_PROPERTIES"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > keystore.jks
+          echo "$KEYSTORE_PROPERTIES" > keystore.properties
+
+      - name: Build AAB + APK
+        run: ./gradlew bundleRelease assembleRelease --stacktrace
+
+      - name: Generate sha256sums
+        run: |
+          cd app/build/outputs
+          find . -name "*.apk" -o -name "*.aab" | xargs sha256sum > sha256sums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            app/build/outputs/sha256sums.txt
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
