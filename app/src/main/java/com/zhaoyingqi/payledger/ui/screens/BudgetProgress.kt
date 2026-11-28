@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +32,8 @@ import java.time.YearMonth
 /**
  * 明细页预算进度（v08 4.5/D9）：
  * 每日 →「剩余每天可用 X · 本月还剩 N 天」，超支附加「已超支 X 元」；
- * 每月 →「本月已用 / 预算」进度条；关闭或金额为 0 不渲染。
+ * 每月 →「本月已用 / 预算」进度条；未设置（NONE）时显示轻量设置入口——
+ * 原实现「不渲染」导致无处发现预算功能，已配置的卡片也补「设置」便于修改。
  * 月支出与日期由 VM 的 dateBoundaryFlow 驱动，跨零点自动重算，不轮询。
  */
 @Composable
@@ -38,6 +41,7 @@ internal fun BudgetProgress(
     settings: BudgetSettings,
     monthSpentCents: Long,
     today: LocalDate,
+    onEdit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -62,6 +66,7 @@ internal fun BudgetProgress(
                             style = MaterialTheme.typography.labelSmall,
                             color = scheme.onSurfaceVariant,
                         )
+                        BudgetEditButton(onEdit)
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -98,6 +103,7 @@ internal fun BudgetProgress(
                             style = MaterialTheme.typography.labelSmall,
                             color = if (overspent) scheme.error else scheme.onSurfaceVariant,
                         )
+                        BudgetEditButton(onEdit)
                     }
                     Spacer(Modifier.height(8.dp))
                     Box(
@@ -114,18 +120,47 @@ internal fun BudgetProgress(
                 }
             }
         }
-        BudgetPlan.NONE -> Unit
+        // 未设置预算：不再整体隐藏，显示轻量入口（否则用户找不到预算功能在哪配置）
+        BudgetPlan.NONE -> Surface(
+            modifier = modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = scheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("预算", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.weight(1f))
+                    BudgetEditButton(onEdit)
+                }
+                Text(
+                    "未设置。设置每日或每月预算后，这里会显示进度并在接近上限时提醒。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+        }
     }
+}
+
+/** 卡片右上角的「设置」按钮（压缩内边距，避免撑高卡片）。 */
+@Composable
+private fun BudgetEditButton(onEdit: () -> Unit) {
+    TextButton(
+        onClick = onEdit,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+    ) { Text("设置") }
 }
 
 private val previewDaily = BudgetSettings(type = BudgetType.DAILY, dailyCents = 30_00L)
 private val previewMonthly = BudgetSettings(type = BudgetType.MONTHLY, monthlyCents = 900_00L)
+private val previewNone = BudgetSettings(type = BudgetType.OFF)
 
 @Preview(name = "每日预算（亮）", showBackground = true)
 @Composable
 private fun BudgetDailyLightPreview() {
     MaterialTheme {
-        BudgetProgress(previewDaily, monthSpentCents = 200_00L, today = LocalDate.of(2025, 6, 12))
+        BudgetProgress(previewDaily, monthSpentCents = 200_00L, today = LocalDate.of(2025, 6, 12), onEdit = {})
     }
 }
 
@@ -133,7 +168,7 @@ private fun BudgetDailyLightPreview() {
 @Composable
 private fun BudgetDailyDarkPreview() {
     MaterialTheme {
-        BudgetProgress(previewDaily, monthSpentCents = 200_00L, today = LocalDate.of(2025, 6, 12))
+        BudgetProgress(previewDaily, monthSpentCents = 200_00L, today = LocalDate.of(2025, 6, 12), onEdit = {})
     }
 }
 
@@ -141,7 +176,7 @@ private fun BudgetDailyDarkPreview() {
 @Composable
 private fun BudgetMonthlyLightPreview() {
     MaterialTheme {
-        BudgetProgress(previewMonthly, monthSpentCents = 950_00L, today = LocalDate.of(2025, 6, 12))
+        BudgetProgress(previewMonthly, monthSpentCents = 950_00L, today = LocalDate.of(2025, 6, 12), onEdit = {})
     }
 }
 
@@ -149,6 +184,14 @@ private fun BudgetMonthlyLightPreview() {
 @Composable
 private fun BudgetMonthlyDarkPreview() {
     MaterialTheme {
-        BudgetProgress(previewMonthly, monthSpentCents = 500_00L, today = LocalDate.of(2025, 6, 12))
+        BudgetProgress(previewMonthly, monthSpentCents = 500_00L, today = LocalDate.of(2025, 6, 12), onEdit = {})
+    }
+}
+
+@Preview(name = "未设置（亮）", showBackground = true)
+@Composable
+private fun BudgetNoneLightPreview() {
+    MaterialTheme {
+        BudgetProgress(previewNone, monthSpentCents = 200_00L, today = LocalDate.of(2025, 6, 12), onEdit = {})
     }
 }

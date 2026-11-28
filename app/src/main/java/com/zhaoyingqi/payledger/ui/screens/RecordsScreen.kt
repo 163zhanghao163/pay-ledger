@@ -1,7 +1,12 @@
 package com.zhaoyingqi.payledger.ui.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,8 +58,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zhaoyingqi.payledger.PayLedgerApplication
+import com.zhaoyingqi.payledger.budget.BudgetType
 import com.zhaoyingqi.payledger.data.TransactionRecord
 import com.zhaoyingqi.payledger.notification.ListenerStatus
 import com.zhaoyingqi.payledger.ui.PayLedgerViewModel
@@ -91,10 +99,23 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
     var showPicker by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
     var searchMode by remember { mutableStateOf(false) }
+    var showBudgetDialog by remember { mutableStateOf(false) }
     val searchActive = searchKeyword.isNotBlank() || searchFilter.isActive
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // —— 软删除撤销（v07 4.2/D3）：Snackbar 显示 5 秒，点「撤销」恢复，超时后不可撤销 ——
     val snackbarHostState = remember { SnackbarHostState() }
+    // 预算设置（明细页入口）：首次启用预算时请求通知权限，拒绝则用 Snackbar 提示影响
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            scope.launch {
+                snackbarHostState.showSnackbar("未授予通知权限：达到预算阈值时不会提醒，可到系统设置开启")
+            }
+        }
+    }
     val lastDeletedId by vm.lastDeletedId.collectAsStateWithLifecycle()
     LaunchedEffect(lastDeletedId) {
         if (lastDeletedId == null) return@LaunchedEffect
@@ -143,11 +164,12 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
                     onOpenPicker = { showPicker = true },
                 )
                 SearchEntryRow(onOpenSearch = { searchMode = true })
-                // 预算进度（v08 4.5）：跨零点由 dateBoundaryFlow 重算，关闭或金额为 0 不渲染
+                // 预算进度/设置入口（v08 4.5）：跨零点由 dateBoundaryFlow 重算
                 BudgetProgress(
                     settings = budgetSettings,
                     monthSpentCents = currentMonthSpent,
                     today = budgetToday,
+                    onEdit = { showBudgetDialog = true },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 if (groups.isEmpty()) {
@@ -251,6 +273,24 @@ fun RecordsScreen(vm: PayLedgerViewModel) {
                 TextButton(onClick = { vm.delete(record.id); deleting = null }) { Text("删除") }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } },
+        )
+    }
+    if (showBudgetDialog) {
+        BudgetSettingsDialog(
+            current = budgetSettings,
+            onDismiss = { showBudgetDialog = false },
+            onSave = { settings ->
+                showBudgetDialog = false
+                val enabling = budgetSettings.type == BudgetType.OFF && settings.type != BudgetType.OFF
+                app.setBudgetSettings(settings)
+                // 从关闭改为启用时才请求通知权限（v08 D5），与帮助页入口行为一致
+                if (enabling && Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            },
         )
     }
 }
