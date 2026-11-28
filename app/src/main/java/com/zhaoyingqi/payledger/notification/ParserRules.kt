@@ -53,6 +53,18 @@ object ParserRules {
     val MERCHANT_ALIPAY = Regex("""向\s*([^\s，,。]{1,20})""")
 
     const val MAX_SUMMARY_LEN = 200
+
+    /**
+     * bg D1/D2：付款信号判定（纯函数）——付款关键词命中，或出现金额（¥/￥ 符号、「N 元」后缀）。
+     * 比解析更宽松，只回答「这条内容值不值得细看」：通知通道用它决定是否渲染 RemoteViews，
+     * 无障碍通道用它决定是否遍历窗口树。「元旦」这类不含数字的「元」不算信号。
+     */
+    fun hasPaySignal(text: String): Boolean {
+        if (text.isBlank()) return false
+        if (PAY_KEYWORDS.any { text.contains(it) }) return true
+        if (text.contains('¥') || text.contains('￥')) return true
+        return UNIT_SUFFIX.containsMatchIn(text)
+    }
 }
 
 /** 去重时间窗：同渠道同金额、采集时间（capturedAt）相差 ≤10 秒视为候选重复。双通道捕获同一笔支付的时间差可能超过 3 秒。 */

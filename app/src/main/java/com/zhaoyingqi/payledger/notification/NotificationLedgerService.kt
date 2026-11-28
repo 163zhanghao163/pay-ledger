@@ -6,6 +6,7 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 import com.zhaoyingqi.payledger.BuildConfig
 import com.zhaoyingqi.payledger.PayLedgerApplication
+import com.zhaoyingqi.payledger.debug.EnergyCounters
 import kotlinx.coroutines.launch
 
 /** 被动监听付款通知：回调→解析→去重→入库。无轮询、无前台服务、无周期任务。 */
@@ -19,27 +20,56 @@ class NotificationLedgerService : NotificationListenerService() {
         // 只处理微信/支付宝；其他应用的通知直接丢弃，不解析、不进调试缓冲。
         if (!isTargetPackage(pkg)) return
         ListenerStatus.setNotificationConnected(true)
+        if (BuildConfig.DEBUG) EnergyCounters.onEventReceived()
         val extras = sbn.notification?.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
-        var text = extractBody(extras)
-        // 微信/支付宝的付款凭证常用自定义布局，正文可能只在 RemoteViews 里
-        extractRemoteViewsText(sbn.notification)?.let { rv ->
-            text = listOf(text, rv).filter { it.isNotBlank() }.joinToString("\n")
-        }
-        // debug 构建只记录微信/支付宝通知，便于校准解析规则；release 零开销
-        if (BuildConfig.DEBUG) app.recentNotifications.push(RawNotification(pkg, title, text, sbn.postTime))
-
+        val extrasText = extractBody(extras)
         val receivedAt = sbn.postTime
-        // 收入开关从 Application StateFlow 读缓存（v07 6.2），不逐条读 SharedPreferences
-        val parsed = NotificationParser.parse(
-            pkg,
-            title,
-            text,
-            receivedAt = receivedAt,
-            incomeEnabled = app.incomeEnabled.value,
-        )
+        val incomeEnabled = app.incomeEnabled.value
+
+        // bg D1 两段式：第一段只用 extras 文本判定，避免对每条通知渲染整棵 RemoteViews 视图树
+        val decision = stage1Decision("$title\n$extrasText", incomeEnabled)
+        val text = when (decision) {
+            Stage1Decision.DROP -> {
+                // debug 缓冲与日志行为保持：忽略词命中的通知仍可见，但不再渲染
+                if (BuildConfig.DEBUG) {
+                    app.recentNotifications.push(RawNotification(pkg, title, extrasText, receivedAt))
+                    Log.d(TAG, "ignored: pkg=$pkg title=$title")
+                }
+                null
+            }
+            // extras 为空：正文只在布局里（付款凭证常用自定义布局），渲染布局文本
+            Stage1Decision.RENDER_ONLY -> renderRemoteViews(sbn.notification)
+            // 含付款信号：渲染并把布局文本并入正文（旧行为等价）
+            Stage1Decision.RENDER_MERGE -> {
+                val rendered = renderRemoteViews(sbn.notification)
+                listOf(extrasText, rendered.orEmpty()).filter { it.isNotBlank() }.joinToString("\n")
+            }
+            // 有文本但无任何付款信号：只用 extras 文本解析，不渲染
+            Stage1Decision.EXTRAS_ONLY -> extrasText
+        }
+        // debug 构建只记录微信/支付宝通知，便于校准解析规则；release 零开销（DROP 分支已在上面入缓冲）
+        if (BuildConfig.DEBUG && decision != Stage1Decision.DROP) {
+            text?.let { app.recentNotifications.push(RawNotification(pkg, title, it, receivedAt)) }
+        }
+
+        var parsed = text?.let {
+            NotificationParser.parse(pkg, title, it, receivedAt = receivedAt, incomeEnabled = incomeEnabled)
+        }
+
+        // bg D7 影子比对（仅 debug）：跳过渲染的分支按旧流程（渲染全量合并）重跑，检测门槛漏记
+        if (BuildConfig.DEBUG && (decision == Stage1Decision.DROP || decision == Stage1Decision.EXTRAS_ONLY)) {
+            val oldText = listOf(extrasText, renderRemoteViews(sbn.notification).orEmpty())
+                .filter { it.isNotBlank() }.joinToString("\n")
+            val oldParsed = NotificationParser.parse(pkg, title, oldText, receivedAt = receivedAt, incomeEnabled = incomeEnabled)
+            if (ShadowCompare.diffCount(oldParsed, parsed) > 0) {
+                EnergyCounters.onShadowDiff()
+                app.recentNotifications.push(RawNotification(pkg, "", ShadowCompare.DESCRIPTION, receivedAt, "影子"))
+            }
+        }
+
         if (parsed == null) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "ignored: pkg=$pkg title=$title")
+            if (BuildConfig.DEBUG && decision != Stage1Decision.DROP) Log.d(TAG, "ignored: pkg=$pkg title=$title")
             return
         }
         app.applicationScope.launch { save(parsed, receivedAt) }
@@ -55,8 +85,9 @@ class NotificationLedgerService : NotificationListenerService() {
     }.joinToString("\n")
 
     /** 自定义布局通知：把 RemoteViews 渲染成视图树后收集 TextView 文本（不显示 UI，瞬时完成）。 */
-    private fun extractRemoteViewsText(notification: Notification): String? = try {
+    private fun renderRemoteViews(notification: Notification): String? = try {
         val views = notification.bigContentView ?: notification.contentView ?: return null
+        if (BuildConfig.DEBUG) EnergyCounters.onRender()
         val root = views.apply(applicationContext, null)
         val out = StringBuilder()
         walkViews(root, out)
@@ -108,4 +139,30 @@ class NotificationLedgerService : NotificationListenerService() {
         private fun isTargetPackage(pkg: String): Boolean =
             pkg == ParserRules.PACKAGE_WECHAT || pkg == ParserRules.PACKAGE_ALIPAY
     }
+}
+
+/** bg D1 第一段决策结果（只用 extras 文本判定，渲染与否据此分支）。 */
+internal enum class Stage1Decision {
+    /** 忽略词命中且无付款/收入语义：直接丢弃，不渲染。 */
+    DROP,
+    /** extras 文本为空：正文只在布局里，仅渲染布局。 */
+    RENDER_ONLY,
+    /** 含付款信号：渲染并把布局文本并入正文。 */
+    RENDER_MERGE,
+    /** 有文本但无付款信号：只用 extras 解析，不渲染。 */
+    EXTRAS_ONLY,
+}
+
+/**
+ * bg D1 第一段判定（纯函数，便于 JVM 单测覆盖四条分支）。
+ * 忽略词命中需排除付款关键词与收入语义：开启「记收入」时收款到账类文案由解析器走收入分支，
+ * 不能在第一段被「收款到账」这个硬忽略词误杀。
+ */
+internal fun stage1Decision(extrasCombined: String, incomeEnabled: Boolean): Stage1Decision {
+    val ignoreHit = ParserRules.HARD_IGNORE.any { extrasCombined.contains(it) }
+    val payHit = ParserRules.PAY_KEYWORDS.any { extrasCombined.contains(it) }
+    val incomeHit = incomeEnabled && ParserRules.INCOME_KEYWORDS.any { extrasCombined.contains(it) }
+    if (ignoreHit && !payHit && !incomeHit) return Stage1Decision.DROP
+    if (extrasCombined.isBlank()) return Stage1Decision.RENDER_ONLY
+    return if (ParserRules.hasPaySignal(extrasCombined)) Stage1Decision.RENDER_MERGE else Stage1Decision.EXTRAS_ONLY
 }

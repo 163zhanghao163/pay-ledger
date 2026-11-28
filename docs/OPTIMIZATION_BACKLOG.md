@@ -3,7 +3,7 @@
 > 记录日期：2026-11-23
 > 用途：集中记录已识别的优化点，后续逐项交给 AI 实现。每项含**现状 / 问题 / 建议方案 / 验收标准**。
 > 优先级：**P0** = 真实 bug 或漏记账风险；**P1** = 识别准确性；**P2** = 体验与健壮性。
-> 后续迭代（含本台账未覆盖的 N-01~N-13 与后台能耗控制）见 `docs/ITERATION_OPTIMIZATION.md`；实施以工作区根 `openspec/changes/<change-name>/` 的制品为准。
+> 后续迭代（含本台账未覆盖的 N-01~N-13 与后台能耗控制）见 `docs/ITERATION_OPTIMIZATION.md`；实施以工作区根 `openspec/changes/<change-name>/` 的制品为准——N-01~N-13 与 E-1~E-6 已全部完成（后台能耗控制见 change `background-energy-control`，测量基线 `docs/ENERGY_BASELINE.md`）。
 
 ## 项目约束（实现时必须遵守）
 

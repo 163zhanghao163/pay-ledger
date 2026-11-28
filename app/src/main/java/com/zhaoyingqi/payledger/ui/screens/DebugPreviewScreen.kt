@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import com.zhaoyingqi.payledger.BuildConfig
 import com.zhaoyingqi.payledger.PayLedgerApplication
 import com.zhaoyingqi.payledger.data.TransactionDao
+import com.zhaoyingqi.payledger.debug.EnergyCounters
+import com.zhaoyingqi.payledger.debug.EnergySnapshot
 import com.zhaoyingqi.payledger.debug.PerfTestData
 import com.zhaoyingqi.payledger.notification.ListenerHealth
 import com.zhaoyingqi.payledger.notification.ListenerStatus
@@ -203,6 +205,9 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
             item {
                 PerfDataCard(onChanged = { refreshTick += 1 }, refreshTick = refreshTick, scope = scope, dao = app.dao)
             }
+            item {
+                EnergyCounterCard(snapshot = remember(refreshTick) { EnergyCounters.snapshot() })
+            }
         }
         if (entries.isEmpty()) {
             item {
@@ -280,6 +285,34 @@ private fun PerfDataCard(
                 "当前测试数据：$testCount 条",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** bg D7：后台能耗计数器（仅 debug 构建显示），按 ENERGY_BASELINE.md 的方法观察渲染/遍历次数。 */
+@Composable
+private fun EnergyCounterCard(snapshot: EnergySnapshot) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("后台能耗计数", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                "进程启动以来事件驱动通道的工作量，用于按 ENERGY_BASELINE.md 对比改动前后；" +
+                    "「影子差异」非 0 表示有内容被新门槛拦下但旧流程本可入账。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "收到事件 ${snapshot.receivedEvents} · 布局渲染 ${snapshot.renders} · " +
+                    "窗口遍历 ${snapshot.traversals} · 读取节点 ${snapshot.nodesRead} · 影子差异 ${snapshot.shadowDiffs}",
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }
