@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -45,7 +46,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.zhaoyingqi.payledger.BuildConfig
 import com.zhaoyingqi.payledger.PayLedgerApplication
+import com.zhaoyingqi.payledger.data.TransactionDao
+import com.zhaoyingqi.payledger.debug.PerfTestData
 import com.zhaoyingqi.payledger.notification.ListenerHealth
 import com.zhaoyingqi.payledger.notification.ListenerStatus
 import com.zhaoyingqi.payledger.notification.NotificationParser
@@ -53,6 +57,7 @@ import com.zhaoyingqi.payledger.notification.RawNotification
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -194,6 +199,11 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
                 }
             }
         }
+        if (BuildConfig.DEBUG) {
+            item {
+                PerfDataCard(onChanged = { refreshTick += 1 }, refreshTick = refreshTick, scope = scope, dao = app.dao)
+            }
+        }
         if (entries.isEmpty()) {
             item {
                 Text(
@@ -212,6 +222,65 @@ fun DebugPreviewScreen(onBack: () -> Unit) {
         }
         items(entries.size) { index ->
             NotificationCard(entries[index], timeFmt)
+        }
+    }
+}
+
+/** v09 3.1：性能基线测试数据入口（仅 debug 构建显示，release 无此入口）。 */
+@Composable
+private fun PerfDataCard(
+    onChanged: () -> Unit,
+    refreshTick: Int,
+    scope: CoroutineScope,
+    dao: TransactionDao,
+) {
+    val testCount by produceState(0, refreshTick) {
+        value = dao.countByCounterparty(PerfTestData.MARKER)
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("性能测试数据", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                "生成 1 万条覆盖近 12 个月的确定性测试记录，用于按 PERF_BASELINE.md 的方法量耗时；" +
+                    "清理只删测试标记行，不影响真实记账。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            dao.insertAll(PerfTestData.generate())
+                            onChanged()
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text("生成 1 万条") }
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            dao.deleteByCounterparty(PerfTestData.MARKER)
+                            onChanged()
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text("清空测试数据") }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "当前测试数据：$testCount 条",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

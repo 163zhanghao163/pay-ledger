@@ -57,6 +57,18 @@ interface TransactionDao {
     @Query("SELECT EXISTS(SELECT 1 FROM transactions WHERE $NOT_DELETED)")
     fun observeAnyRecord(): Flow<Boolean>
 
+    /** v09 3.1：性能基线批量灌入（仅 debug 调试页调用）。 */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(records: List<TransactionRecord>)
+
+    /** v09 3.1：按标记清理性能测试数据，只删测试行，不触碰真实记录。 */
+    @Query("DELETE FROM transactions WHERE counterparty = :marker")
+    suspend fun deleteByCounterparty(marker: String): Int
+
+    /** v09 3.1：当前测试数据条数（调试页展示）。 */
+    @Query("SELECT COUNT(*) FROM transactions WHERE counterparty = :marker")
+    suspend fun countByCounterparty(marker: String): Int
+
     /**
      * 判重候选：同渠道同金额、采集时间在窗口内，返回整行交 DuplicatePolicy 判定。
      * 注意：不过滤已删除记录（v07 D1 例外）。

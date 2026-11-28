@@ -11,6 +11,7 @@ import com.zhaoyingqi.payledger.data.MonthSum
 import com.zhaoyingqi.payledger.data.SearchQuery
 import com.zhaoyingqi.payledger.data.TransactionDao
 import com.zhaoyingqi.payledger.data.TransactionRecord
+import com.zhaoyingqi.payledger.debug.timed
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -90,18 +91,21 @@ class PayLedgerViewModel(
         .flatMapLatest { (ym, dz) ->
             dao.observeBetween(monthStart(ym, dz.zone), monthEnd(ym, dz.zone))
                 .map { groupByDay(it, dz.zone) }
+                .timed("records.groups") { it.size }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val todayCents: StateFlow<Long> = dateBoundary
         .flatMapLatest { dz ->
             dao.observeSumBetween(startOfDay(dz.date, dz.zone), startOfDay(dz.date.plusDays(1), dz.zone))
+                .timed("records.todaySum")
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     val monthCents: StateFlow<Long> = combine(_selectedMonth, dateBoundary) { ym, dz -> ym to dz }
         .flatMapLatest { (ym, dz) ->
             dao.observeSumBetween(monthStart(ym, dz.zone), monthEnd(ym, dz.zone))
+                .timed("stats.monthSum")
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
@@ -109,6 +113,7 @@ class PayLedgerViewModel(
     val monthIncomeCents: StateFlow<Long> = combine(_selectedMonth, dateBoundary) { ym, dz -> ym to dz }
         .flatMapLatest { (ym, dz) ->
             dao.observeIncomeSumBetween(monthStart(ym, dz.zone), monthEnd(ym, dz.zone))
+                .timed("stats.monthIncomeSum")
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
@@ -119,6 +124,7 @@ class PayLedgerViewModel(
     /** 当前自然月支出合计（预算进度用，区别于随选中月份变化的 monthCents）。 */
     val currentMonthCents: StateFlow<Long> = dateBoundary.flatMapLatest { dz ->
         dao.observeSumBetween(monthStart(YearMonth.from(dz.date), dz.zone), monthEnd(YearMonth.from(dz.date), dz.zone))
+            .timed("records.currentMonthSum")
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     /** 全库是否已有记录（空态引导，v08 3.3；初值 true 避免冷启动闪现引导）。 */
@@ -184,7 +190,7 @@ class PayLedgerViewModel(
                         filter.minCents, filter.maxCents, escaped,
                     )
                     emit(SearchResult(records, total > TransactionDao.SEARCH_LIMIT))
-                }
+                }.timed("search.results") { it?.records?.size ?: 0 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -204,6 +210,7 @@ class PayLedgerViewModel(
     val monthlySums: StateFlow<List<MonthSum>> = combine(_statsYear, dateBoundary) { y, dz -> y to dz }
         .flatMapLatest { (y, dz) ->
             dao.observeMonthlySums(yearStart(y, dz.zone), yearEnd(y, dz.zone))
+                .timed("stats.monthlyTrend") { it.size }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -211,6 +218,7 @@ class PayLedgerViewModel(
     val categorySums: StateFlow<List<CategorySum>> = combine(_statsYear, _statsType, dateBoundary) { y, t, dz -> Triple(y, t, dz) }
         .flatMapLatest { (y, t, dz) ->
             dao.observeCategorySums(t, yearStart(y, dz.zone), yearEnd(y, dz.zone))
+                .timed("stats.categorySums") { it.size }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -218,6 +226,7 @@ class PayLedgerViewModel(
     val topMerchants: StateFlow<List<MerchantSum>> = combine(_statsYear, _statsType, dateBoundary) { y, t, dz -> Triple(y, t, dz) }
         .flatMapLatest { (y, t, dz) ->
             dao.observeTopMerchants(t, yearStart(y, dz.zone), yearEnd(y, dz.zone))
+                .timed("stats.topMerchants") { it.size }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
