@@ -132,10 +132,8 @@ class MainActivity : ComponentActivity() {
                                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                 },
                             )
-                            // 低强调提示行：监听正常但无障碍未开启，前台支付可能漏记（v08 1.3/D2）
-                            !status.accessibilityConnected -> AccessibilityHintRow(
-                                onOpen = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                            )
+                            // 无障碍未开启不再常驻提示（v1.0 用户反馈占位挤压记录列表）；
+                            // 状态仍可在帮助页与调试页查看
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
                     }
@@ -286,41 +284,6 @@ private fun ListenerBanner(onReconnect: () -> Unit, onSettings: () -> Unit) {
     }
 }
 
-/** 低强调提示行（v08 D2）：监听正常但无障碍未开启，前台支付可能漏记。 */
-@Composable
-private fun AccessibilityHintRow(onOpen: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = MaterialTheme.shapes.large,
-        color = scheme.surfaceContainerHigh,
-    ) {
-        Row(
-            Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Build,
-                contentDescription = null,
-                tint = scheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "未开启无障碍，前台支付可能漏记",
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                onClick = onOpen,
-                colors = ButtonDefaults.textButtonColors(contentColor = scheme.primary),
-                contentPadding = PaddingValues(horizontal = 8.dp),
-            ) { Text("去开启") }
-        }
-    }
-}
-
 // —— 横幅预览（v08 5.2，亮/暗）——
 
 @Preview(name = "断连横幅（亮）", showBackground = true)
@@ -333,16 +296,4 @@ private fun ListenerBannerLightPreview() {
 @Composable
 private fun ListenerBannerDarkPreview() {
     MaterialTheme { ListenerBanner(onReconnect = {}, onSettings = {}) }
-}
-
-@Preview(name = "无障碍提示行（亮）", showBackground = true)
-@Composable
-private fun AccessibilityHintLightPreview() {
-    MaterialTheme { AccessibilityHintRow(onOpen = {}) }
-}
-
-@Preview(name = "无障碍提示行（暗）", showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
-@Composable
-private fun AccessibilityHintDarkPreview() {
-    MaterialTheme { AccessibilityHintRow(onOpen = {}) }
 }

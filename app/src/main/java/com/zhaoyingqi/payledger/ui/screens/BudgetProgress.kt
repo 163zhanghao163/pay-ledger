@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.zhaoyingqi.payledger.budget.BudgetMath
@@ -30,10 +31,10 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 /**
- * 明细页预算进度（v08 4.5/D9）：
- * 每日 →「剩余每天可用 X · 本月还剩 N 天」，超支附加「已超支 X 元」；
- * 每月 →「本月已用 / 预算」进度条；未设置（NONE）时显示轻量设置入口——
- * 原实现「不渲染」导致无处发现预算功能，已配置的卡片也补「设置」便于修改。
+ * 明细页预算进度（v08 4.5/D9，v1.0 压缩为单行紧凑样式）：
+ * 每日 → 一行「¥30/天 · 余 ¥28/天 · 还剩 12 天」，超支变红提示；
+ * 每月 → 一行摘要 + 4dp 进度条；未设置（NONE）→ 一行轻量设置入口。
+ * 原两行大卡片占位过多挤压记录列表（v1.0 用户反馈）。
  * 月支出与日期由 VM 的 dateBoundaryFlow 驱动，跨零点自动重算，不轮询。
  */
 @Composable
@@ -51,94 +52,77 @@ internal fun BudgetProgress(
             val monthTotal = BudgetMath.monthTotalCents(plan.cents, month)
             val remaining = BudgetMath.remainingPerDayCents(monthTotal, monthSpentCents, today)
             val daysLeft = month.lengthOfMonth() - (today.dayOfMonth - 1)
-            Surface(
-                modifier = modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                color = scheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
-            ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("每日预算", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "预算 ${formatCents(plan.cents)}/天",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = scheme.onSurfaceVariant,
-                        )
-                        BudgetEditButton(onEdit)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "剩余每天可用 ${formatCents(remaining.remainingPerDayCents)} · 本月还剩 $daysLeft 天",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (remaining.overspendCents > 0L) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "已超支 ${formatCents(remaining.overspendCents)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.error,
-                        )
-                    }
-                }
-            }
+            BudgetCompactCard(
+                modifier = modifier,
+                summaryLine = "每日预算 ${formatCents(plan.cents)}/天 · 余 ${formatCents(remaining.remainingPerDayCents)}/天" +
+                    " · 还剩 $daysLeft 天",
+                overspend = remaining.overspendCents > 0L,
+                onEdit = onEdit,
+            )
         }
         is BudgetPlan.Monthly -> {
-            val fraction = if (plan.cents > 0) monthSpentCents.toFloat() / plan.cents else 0f
-            val overspent = monthSpentCents > plan.cents
-            val description = "本月已用 ${formatCents(monthSpentCents)}，预算 ${formatCents(plan.cents)}"
-            Surface(
-                modifier = modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                color = scheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+            BudgetCompactCard(
+                modifier = modifier,
+                summaryLine = "每月预算 · 本月已用 ${formatCents(monthSpentCents)} / ${formatCents(plan.cents)}",
+                overspend = monthSpentCents > plan.cents,
+                onEdit = onEdit,
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("每月预算", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            description,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (overspent) scheme.error else scheme.onSurfaceVariant,
-                        )
-                        BudgetEditButton(onEdit)
-                    }
-                    Spacer(Modifier.height(8.dp))
+                val scheme = MaterialTheme.colorScheme
+                val overspent = monthSpentCents > plan.cents
+                val fraction = if (plan.cents > 0) monthSpentCents.toFloat() / plan.cents else 0f
+                Spacer(Modifier.height(5.dp))
+                Box(
+                    Modifier.fillMaxWidth().height(4.dp)
+                        .clip(CircleShape)
+                        .background(scheme.surfaceContainerHighest),
+                ) {
                     Box(
-                        Modifier.fillMaxWidth().height(6.dp)
+                        Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp)
                             .clip(CircleShape)
-                            .background(scheme.surfaceContainerHighest),
-                    ) {
-                        Box(
-                            Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(6.dp)
-                                .clip(CircleShape)
-                                .background(if (overspent) scheme.error else scheme.primary),
-                        )
-                    }
+                            .background(if (overspent) scheme.error else scheme.primary),
+                    )
                 }
             }
         }
-        // 未设置预算：不再整体隐藏，显示轻量入口（否则用户找不到预算功能在哪配置）
-        BudgetPlan.NONE -> Surface(
-            modifier = modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            color = scheme.surfaceContainerLow,
-            border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
-        ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("预算", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.weight(1f))
-                    BudgetEditButton(onEdit)
-                }
+        // 未设置预算：单行轻量入口（否则用户找不到预算功能在哪配置）
+        BudgetPlan.NONE -> BudgetCompactCard(
+            modifier = modifier,
+            summaryLine = "预算 · 未设置",
+            overspend = false,
+            onEdit = onEdit,
+        )
+    }
+}
+
+/** 紧凑预算卡：单行摘要（超支变红）+ 右上「设置」按钮；[content] 可选（月预算进度条）。 */
+@Composable
+private fun BudgetCompactCard(
+    modifier: Modifier = Modifier,
+    summaryLine: String,
+    overspend: Boolean,
+    onEdit: () -> Unit,
+    content: @Composable () -> Unit = {},
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = scheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "未设置。设置每日或每月预算后，这里会显示进度并在接近上限时提醒。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
+                    summaryLine,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (overspend) scheme.error else scheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                BudgetEditButton(onEdit)
             }
+            content()
         }
     }
 }
