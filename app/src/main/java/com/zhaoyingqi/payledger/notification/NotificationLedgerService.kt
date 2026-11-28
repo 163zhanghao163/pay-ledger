@@ -29,50 +29,79 @@ class NotificationLedgerService : NotificationListenerService() {
 
         // bg D1 两段式：第一段只用 extras 文本判定，避免对每条通知渲染整棵 RemoteViews 视图树
         val decision = stage1Decision("$title\n$extrasText", incomeEnabled)
-        val text = when (decision) {
-            Stage1Decision.DROP -> {
-                // debug 缓冲与日志行为保持：忽略词命中的通知仍可见，但不再渲染
-                if (BuildConfig.DEBUG) {
-                    app.recentNotifications.push(RawNotification(pkg, title, extrasText, receivedAt))
-                    Log.d(TAG, "ignored: pkg=$pkg title=$title")
-                }
-                null
+        val ctx = NotificationContext(sbn.notification, pkg, title, extrasText, receivedAt, incomeEnabled)
+        if (decision == Stage1Decision.DROP) {
+            // debug 缓冲与日志行为保持：忽略词命中的通知仍可见，但不再渲染；影子比对检测硬忽略词是否误杀
+            if (BuildConfig.DEBUG) {
+                app.recentNotifications.push(RawNotification(pkg, title, extrasText, receivedAt))
+                Log.d(TAG, "ignored: pkg=$pkg title=$title")
+                compareWithShadow(ctx, null)
             }
+            return
+        }
+
+        val text = stage2Text(decision, sbn.notification, extrasText)
+        // debug 构建只记录微信/支付宝通知，便于校准解析规则；release 零开销
+        if (BuildConfig.DEBUG) {
+            text?.let { app.recentNotifications.push(RawNotification(pkg, title, it, receivedAt)) }
+        }
+        val parsed = text?.let {
+            NotificationParser.parse(pkg, title, it, receivedAt = receivedAt, incomeEnabled = incomeEnabled)
+        }
+        // bg D7 影子比对（仅 debug）：只用 extras 的分支按旧流程（渲染全量合并）重跑，检测门槛漏记
+        if (BuildConfig.DEBUG && decision == Stage1Decision.EXTRAS_ONLY) {
+            compareWithShadow(ctx, parsed)
+        }
+        if (parsed == null) {
+            Log.d(TAG, "ignored: pkg=$pkg title=$title")
+            return
+        }
+        app.applicationScope.launch { save(parsed, receivedAt) }
+    }
+
+    /** 通知上下文（避免辅助函数参数列表过长）。 */
+    private data class NotificationContext(
+        val notification: Notification?,
+        val pkg: String,
+        val title: String,
+        val extrasText: String,
+        val receivedAt: Long,
+        val incomeEnabled: Boolean,
+    )
+
+    /** bg D1 第二段：按第一段决策决定正文来源，渲染与否据此分支。 */
+    private fun stage2Text(decision: Stage1Decision, notification: Notification?, extrasText: String): String? =
+        when (decision) {
             // extras 为空：正文只在布局里（付款凭证常用自定义布局），渲染布局文本
-            Stage1Decision.RENDER_ONLY -> renderRemoteViews(sbn.notification)
+            Stage1Decision.RENDER_ONLY -> renderRemoteViews(notification)
             // 含付款信号：渲染并把布局文本并入正文（旧行为等价）
             Stage1Decision.RENDER_MERGE -> {
-                val rendered = renderRemoteViews(sbn.notification)
+                val rendered = renderRemoteViews(notification)
                 listOf(extrasText, rendered.orEmpty()).filter { it.isNotBlank() }.joinToString("\n")
             }
             // 有文本但无任何付款信号：只用 extras 文本解析，不渲染
             Stage1Decision.EXTRAS_ONLY -> extrasText
-        }
-        // debug 构建只记录微信/支付宝通知，便于校准解析规则；release 零开销（DROP 分支已在上面入缓冲）
-        if (BuildConfig.DEBUG && decision != Stage1Decision.DROP) {
-            text?.let { app.recentNotifications.push(RawNotification(pkg, title, it, receivedAt)) }
+            // 不可达：DROP 在主流程已提前返回
+            Stage1Decision.DROP -> null
         }
 
-        var parsed = text?.let {
-            NotificationParser.parse(pkg, title, it, receivedAt = receivedAt, incomeEnabled = incomeEnabled)
+    /** bg D7 影子比对（仅 debug）：按旧流程（渲染全量合并）重跑，旧可入账而新未入账计 1。 */
+    private fun compareWithShadow(ctx: NotificationContext, parsed: ParsedPayment?) {
+        val oldText = listOf(ctx.extrasText, renderRemoteViews(ctx.notification).orEmpty())
+            .filter { it.isNotBlank() }.joinToString("\n")
+        val oldParsed = NotificationParser.parse(
+            ctx.pkg,
+            ctx.title,
+            oldText,
+            receivedAt = ctx.receivedAt,
+            incomeEnabled = ctx.incomeEnabled,
+        )
+        if (ShadowCompare.diffCount(oldParsed, parsed) > 0) {
+            EnergyCounters.onShadowDiff()
+            app.recentNotifications.push(
+                RawNotification(ctx.pkg, "", ShadowCompare.DESCRIPTION, ctx.receivedAt, "影子"),
+            )
         }
-
-        // bg D7 影子比对（仅 debug）：跳过渲染的分支按旧流程（渲染全量合并）重跑，检测门槛漏记
-        if (BuildConfig.DEBUG && (decision == Stage1Decision.DROP || decision == Stage1Decision.EXTRAS_ONLY)) {
-            val oldText = listOf(extrasText, renderRemoteViews(sbn.notification).orEmpty())
-                .filter { it.isNotBlank() }.joinToString("\n")
-            val oldParsed = NotificationParser.parse(pkg, title, oldText, receivedAt = receivedAt, incomeEnabled = incomeEnabled)
-            if (ShadowCompare.diffCount(oldParsed, parsed) > 0) {
-                EnergyCounters.onShadowDiff()
-                app.recentNotifications.push(RawNotification(pkg, "", ShadowCompare.DESCRIPTION, receivedAt, "影子"))
-            }
-        }
-
-        if (parsed == null) {
-            if (BuildConfig.DEBUG && decision != Stage1Decision.DROP) Log.d(TAG, "ignored: pkg=$pkg title=$title")
-            return
-        }
-        app.applicationScope.launch { save(parsed, receivedAt) }
     }
 
     /** 正文提取：TEXT → BIG_TEXT → TEXT_LINES（MessagingStyle，如微信消息式通知）。 */
@@ -85,8 +114,8 @@ class NotificationLedgerService : NotificationListenerService() {
     }.joinToString("\n")
 
     /** 自定义布局通知：把 RemoteViews 渲染成视图树后收集 TextView 文本（不显示 UI，瞬时完成）。 */
-    private fun renderRemoteViews(notification: Notification): String? = try {
-        val views = notification.bigContentView ?: notification.contentView ?: return null
+    private fun renderRemoteViews(notification: Notification?): String? = try {
+        val views = notification?.bigContentView ?: notification?.contentView ?: return null
         if (BuildConfig.DEBUG) EnergyCounters.onRender()
         val root = views.apply(applicationContext, null)
         val out = StringBuilder()
@@ -143,12 +172,16 @@ class NotificationLedgerService : NotificationListenerService() {
 
 /** bg D1 第一段决策结果（只用 extras 文本判定，渲染与否据此分支）。 */
 internal enum class Stage1Decision {
+
     /** 忽略词命中且无付款/收入语义：直接丢弃，不渲染。 */
     DROP,
+
     /** extras 文本为空：正文只在布局里，仅渲染布局。 */
     RENDER_ONLY,
+
     /** 含付款信号：渲染并把布局文本并入正文。 */
     RENDER_MERGE,
+
     /** 有文本但无付款信号：只用 extras 解析，不渲染。 */
     EXTRAS_ONLY,
 }

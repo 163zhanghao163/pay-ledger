@@ -20,7 +20,9 @@ class A11yGateTest {
     @Test
     fun content_event_within_throttle_is_blocked() {
         gate.refreshThrottle(t0)
-        assertTrue(gate.isContentThrottled(isContentEvent = true, now = t0 + PaymentAccessibilityService.THROTTLE_MS - 1))
+        assertTrue(
+            gate.isContentThrottled(isContentEvent = true, now = t0 + PaymentAccessibilityService.THROTTLE_MS - 1),
+        )
     }
 
     @Test
