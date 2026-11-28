@@ -25,8 +25,8 @@ android {
         minSdk = 26
         // v09 2.5：targetSdk 跟随 compileSdk 升到 36（通知权限、无障碍、监听行为需真机回归）
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.5.7"
+        versionCode = 16
+        versionName = "1.0.0"
     }
 
     signingConfigs {

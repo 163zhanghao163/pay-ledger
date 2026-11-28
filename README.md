@@ -29,9 +29,19 @@
 
 ## 构建
 
-- Android Studio（Gradle 8.10.2 / AGP 8.7.3 / Kotlin 2.0.21 / minSdk 26）直接打开构建
+- Android Studio（Gradle 8.14.8 / AGP 8.13.2 / Kotlin 2.2.21 / minSdk 26 / targetSdk 36）直接打开构建
 - 或命令行：`./gradlew assembleDebug`
-- 单元测试：`./gradlew testDebugUnitTest`
+- 单元测试：`./gradlew testDebugUnitTest`；静态检查：`./gradlew detekt`
+- 版本升级与兼容问题的处理记录见 [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md)
+
+### 签名与发布（v09）
+
+- 签名信息外置：在仓库根放 `keystore.properties`（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`，已被 `.gitignore`），
+  存在时 release 自动签名；**不放该文件也能构建**——产出未签名包，仅用于验证
+- 发布：向 GitHub 推送 `v*` tag 触发 `release.yml`，CI 构建 AAB + APK、生成 `sha256sums.txt` 并创建 Release；
+  需先在仓库 Secrets 配置 `RELEASE_KEYSTORE_B64`（密钥库 base64）与 `RELEASE_KEYSTORE_PROPERTIES`（properties 文件原文）
+- 密钥库离线备份两份，保管位置不写入仓库
+- 性能测量方法见 [docs/PERF_BASELINE.md](docs/PERF_BASELINE.md)
 
 ## 已知适配
 
