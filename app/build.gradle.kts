@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.detekt)
 }
 
 android {
@@ -31,6 +32,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    detekt {
+        // v09 D1：空规则集 + 按需开启（complexity/performance/exception/coroutines/formatting），
+        // 存量问题用 detekt-baseline.xml 收口，基线只减不增
+        buildUponDefaultConfig = true
+        config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
+        baseline = file("$rootDir/app/detekt-baseline.xml")
     }
     lint {
         // 存量问题已基线化（lint-baseline.xml），只拦新增问题；基线只减不增
@@ -66,6 +74,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
+    detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.8")
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.compose.material3)

@@ -1,0 +1,30 @@
+# v09 D1：只开启 complexity / performance / exception / coroutines / formatting 五组规则，
+# 其余规则集整体关闭；存量问题以 app/detekt-baseline.xml 收口，基线只减不增。
+build:
+  maxIssues: 0
+
+complexity:
+  active: true
+
+coroutines:
+  active: true
+
+exceptions:
+  active: true
+
+formatting:
+  active: true
+
+performance:
+  active: true
+
+comments:
+  active: false
+empty-blocks:
+  active: false
+naming:
+  active: false
+potential-bugs:
+  active: false
+style:
+  active: false
